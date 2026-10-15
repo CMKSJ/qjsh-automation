@@ -163,6 +163,49 @@ async function mineOnce(env) {
   }
 }
 
+// 玩家活跃检测：操作版本指纹（排除被动变化：粮草恢复、市场/租金累积不进版本号）
+const ACTIVITY_TIMEOUT_MS = 10 * 60_000;   // 10 分钟无操作 = 判定下线
+const SELF_ACTION_GRACE_MS = 2 * 60_000;   // Worker 自己写操作后的宽限
+
+function activityFingerprint(home) {
+  const v = (code) => home.economy.currencies.find(c => c.code === code)?.version ?? 0;
+  return [
+    home.player.progressVersion,
+    v("COPPER"), v("YUANBAO"), v("SILVER_TICKET"), v("BATTLE_ACHIEVEMENT"),
+    home.mining?.version ?? 0,
+    home.occupation?.version ?? 0,
+    home.marketCollection?.version ?? 0,
+  ].join("|");
+}
+
+// 每分钟 tick 调用：采样 + 更新活跃状态；返回 true=玩家活跃（近10分钟有操作）
+async function trackActivity(env, home) {
+  const fp = activityFingerprint(home);
+  const st = await load(env, "activity", {});
+  const now = Date.now();
+  const prev = st.fingerprint;
+  st.fingerprint = fp;
+  if (prev !== undefined && prev !== fp) {
+    // Worker 自己写操作后的宽限期内变化不计
+    if (!st.lastSelfActionAt || now - st.lastSelfActionAt > SELF_ACTION_GRACE_MS) {
+      if (!st.lastActiveAt || now - st.lastActiveAt > ACTIVITY_TIMEOUT_MS) {
+        await addLog(env, "检测到玩家活跃（手机操作中），自动暂停消耗性任务", "warn");
+      }
+      st.lastActiveAt = now;
+    }
+  }
+  st.active = !!st.lastActiveAt && (now - st.lastActiveAt < ACTIVITY_TIMEOUT_MS);
+  await save(env, "activity", st);
+  return st.active;
+}
+
+// Worker 写操作完成后调用（宽限自身造成的版本变化）
+async function markSelfAction(env) {
+  const st = await load(env, "activity", {});
+  st.lastSelfActionAt = Date.now();
+  await save(env, "activity", st);
+}
+
 // 刷新快照（60 秒节流；force=true 跳过节流）
 async function refreshSnapshot(env, force = false) {
   try {
@@ -355,6 +398,7 @@ async function grabHero(env, key, manual = false) {
       });
       h.status = "GRABBED";
       h.grabbedAt = new Date().toISOString();
+      await markSelfAction(env);
     });
     heroes[key] = h;
     await save(env, "purpleHeroes", heroes);
@@ -406,8 +450,20 @@ async function scheduled(event, env, ctx) {
     await warnOnce(env, "noToken", "尚无 accessToken：请在手机游戏页面点一下书签上报（见面板顶部说明）");
     return;
   }
-  // 暂停中：跳过一切写操作（签到/开采/整点/抢购），只保留只读扫描
-  if ((await load(env, "paused", false)) === true) {
+  // 每分钟采样：快照 + 玩家活跃检测
+  let playerActive = false;
+  try {
+    const homeNow = await withSession(env, async (token) => {
+      const h = await api("GET", "/api/v1/home", { token });
+      await writeSnapshot(env, token, h);
+      return h;
+    });
+    playerActive = await trackActivity(env, homeNow);
+  } catch (e) { /* 采样失败不阻断 */ }
+
+  // 手动暂停 或 玩家活跃：跳过一切写操作（签到/开采/整点/抢购），只保留只读扫描
+  const manualPaused = (await load(env, "paused", false)) === true;
+  if (manualPaused || playerActive) {
     if (minute % 5 === 2) {
       const found0 = await jobPurpleScan(env);
       for (const f of found0) await addLog(env, `发现紫将(暂停中仅记录): ${f}`, "success");
@@ -425,6 +481,7 @@ async function scheduled(event, env, ctx) {
     if (hour === 0 && minute >= 1 && minute <= 30 && daily.mining < DAILY_MINING) {
       const r = await mineOnce(env);
       if (r === "OK") {
+        await markSelfAction(env);
         daily.mining++;
         await save(env, "daily", daily);
         if (daily.mining === DAILY_MINING) await addLog(env, "矿山: 今日 10 次开采完成");
@@ -434,13 +491,14 @@ async function scheduled(event, env, ctx) {
       } else if (r === "COOLDOWN") {
         await new Promise(res => setTimeout(res, 30_000));
         const r2 = await mineOnce(env);
-        if (r2 === "OK") { daily.mining++; await save(env, "daily", daily); }
+        if (r2 === "OK") { await markSelfAction(env); daily.mining++; await save(env, "daily", daily); }
         else if (r2 === "DONE") { daily.mining = DAILY_MINING; await save(env, "daily", daily); }
       }
     }
 
     if (minute === 0 && !daily.hourly[hour]) {
       const r = await jobHourly(env);
+      await markSelfAction(env);
       daily.hourly[hour] = true; await save(env, "daily", daily);
       await addLog(env, `[${String(hour).padStart(2, "0")}:00] ${r.join("; ")}`);
     }
@@ -545,6 +603,8 @@ async function render(){
     const provNow=provC?provC.balance:'-';
     const provCap=s.snapshot?.player?.provisionsCapacity??'-';
     window.__cap=s.snapshot?.heroCapacity||null;
+    const act=s.activity||{};
+    $('hserver').textContent=(s.state?.serverId||'')+(act.active?' · 🟢玩家活跃(自动暂停中)':' · ⚪玩家离线(自动运行)');
     window.__paused=!!s.paused;
     $('pauser').textContent=window.__paused?'▶ 恢复自动化':'暂停自动化';
     $('pauser').style.borderColor=window.__paused?'var(--err)':'var(--line)';
@@ -616,16 +676,15 @@ async function handleApi(request, env, ctx) {
   }
 
   if (route === "status" && request.method === "GET") {
-    // 面板访问即触发快照刷新（60 秒节流），不阻塞本次响应
-    if (ctx) ctx.waitUntil(refreshSnapshot(env));
-    const [token, daily, heroes, log, snapshot, paused] = await Promise.all([
+    const [token, daily, heroes, log, snapshot, paused, activity] = await Promise.all([
       load(env, "token", {}), load(env, "daily", {}),
       load(env, "purpleHeroes", {}), load(env, "log", []), load(env, "snapshot", {}),
-      load(env, "paused", false),
+      load(env, "paused", false), load(env, "activity", {}),
     ]);
     const { token: tok, ...tokenSafe } = token;  // 不向页面暴露凭据
     tokenSafe.hasToken = !!tok;
-    return json({ token: tokenSafe, daily, heroes, log, snapshot, paused });
+    const { fingerprint, ...actSafe } = activity;
+    return json({ token: tokenSafe, daily, heroes, log, snapshot, paused, activity: actSafe });
   }
   if (route === "reserve" && request.method === "POST") {
     const { key } = await request.json();
