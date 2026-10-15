@@ -273,8 +273,10 @@ async function jobHourly(env) {
       const prov = home.economy.currencies.find(c => c.code === "PROVISIONS")?.balance ?? 0;
       const copper = home.economy.currencies.find(c => c.code === "COPPER")?.balance ?? 0;
 
-      // --- 兑换银票：贪心凑 12，不足则全部 ---
-      let budget = Math.min(12, prov);
+      // --- 兑换银票：防溢出最小消耗 y = max(x + 13 - m, 0) ---
+      // 每小时恢复 12 点体力(粮草)，只兑换「下一小时不会溢出」的最小量，存量尽量保留
+      const provCap = home.player.provisionsCapacity ?? 22;
+      let budget = Math.max(prov + 13 - provCap, 0);
       const plan = {};
       for (const t of EXCHANGE_TIERS) while (budget >= t) { plan[t] = (plan[t] || 0) + 1; budget -= t; }
       const tickets = Object.entries(plan).reduce((s, [t, n]) => s + t * n, 0);
@@ -289,7 +291,7 @@ async function jobHourly(env) {
       } else if (tickets > 0) {
         out.push(`兑换跳过: 需${copperNeed}铜 仅有${copper}`);
       } else {
-        out.push(`兑换跳过: 粮草 ${prov} 点`);
+        out.push(`兑换跳过: 粮草 ${prov}/${provCap} 下一小时不会溢出`);
       }
 
       // --- 征收市场 ---

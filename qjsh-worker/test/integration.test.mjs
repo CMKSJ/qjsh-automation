@@ -99,7 +99,7 @@ console.log("T2: 整点任务");
 await tick(Date.UTC(2026, 9, 15, 17, 0, 0));
 const st2 = await (await worker.fetch(new Request("https://x/api/status", { headers: { "X-Page-Key": "test123" } }), env)).json();
 const hl = st2.log.find(l => l.msg.includes("[01:00]"));
-assert(/兑换 12 银票/.test(hl?.msg || ""), "兑换 12 银票: " + hl?.msg);
+assert(/兑换 3 银票/.test(hl?.msg || ""), "兑换 3 银票(防溢出最小量): " + hl?.msg);
 assert(/征收 \+3924/.test(hl?.msg || ""), "征收");
 assert(/收租 ✓/.test(hl?.msg || ""), "收租");
 
