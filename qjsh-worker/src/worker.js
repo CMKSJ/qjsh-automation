@@ -405,12 +405,23 @@ async function grabHero(env, key, manual = false) {
   const h = heroes[key];
   if (!h) return { ok: false, msg: "目标不存在" };
   if (h.status === "GRABBED") return { ok: false, msg: "已抢购成功" };
-  // 武将位满员预检（快照容量；remaining<=0 拒绝）
-  const cap = (await load(env, "snapshot", {})).heroCapacity;
-  if (cap && cap.remaining <= 0) {
-    const msg = `武将位已满（${cap.owned}/${cap.capacity}），请先解雇或提取武魂腾出位置`;
-    if (!manual) await warnOnce(env, "capFull", "抢购跳过: " + msg);
-    return { ok: false, msg };
+  // 快照粗筛（明显不满直接过，省一次请求）
+  const snapCap = (await load(env, "snapshot", {})).heroCapacity;
+  const clearlyOpen = snapCap && snapCap.owned < snapCap.capacity;
+  if (!clearlyOpen) {
+    // 快照缺失或显示满员：实时查询自己酒馆（快照最多滞后 5 分钟）
+    let full = null;
+    try {
+      full = await withSession(env, async (token) => {
+        const t = await api("GET", "/api/v1/tavern", { token });
+        return t.ownedHeroCount >= t.heroCapacity;
+      });
+    } catch (e) { full = null; }
+    if (full === true) {
+      const msg = "武将位已满，请先解雇或提取武魂腾出位置";
+      if (!manual) await warnOnce(env, "capFull", "抢购跳过: " + msg);
+      return { ok: false, msg };
+    }
   }
 
   try {
@@ -678,8 +689,8 @@ async function render(){
 }
 async function capFull(){const c=window.__cap;return c&&c.remaining<=0}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
-async function res(k){if(capFull()){return toast('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置，否则到期也抢不了',false)}await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
-async function grab(k){if(capFull()){return toast('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置',false)}const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
+async function res(k){if(capFull())toast('快照显示武将位已满('+window.__cap.owned+'/'+window.__cap.capacity+')，若已腾位置可忽略(到期按实时容量校验)',false);await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
+async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
 async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\\n'):(''+res);if(r.found&&r.found.length)txt+='\\n'+r.found.join('\\n');toast(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
 </script></body></html>`;
