@@ -337,7 +337,7 @@ async function jobPurpleScan(env) {
             };
             found.push(`${a.owner}家 ${a.hero}(${cand.quality}${cand.star}星)`);
           } else if (heroes[key]?.status === "ALIVE") {
-            heroes[key].status = "GONE";
+            delete heroes[key];
           }
         } catch (e) { /* 单条失败不影响其他 */ }
       }
@@ -349,18 +349,13 @@ async function jobPurpleScan(env) {
         try {
           const t = await api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token });
           const cand = (t.candidates || []).find(c => c.candidateId === h.candidateId);
-          if (!cand) h.status = "GONE";
+          if (!cand) { delete heroes[key]; continue; }
           else {
             h.candidateVersion = cand.version;
             h.protectionEndsAt = t.protectionEndsAt;
             h.lastSeenAt = new Date().toISOString();
           }
         } catch (e) { /* 忽略 */ }
-      }
-
-      const dayAgo = Date.now() - 86400_000;
-      for (const [key, h] of Object.entries(heroes)) {
-        if (h.status === "GONE" && Date.parse(h.lastSeenAt) < dayAgo) delete heroes[key];
       }
 
       await save(env, "playerCache", pcache);
@@ -406,7 +401,7 @@ async function grabHero(env, key, manual = false) {
     return { ok: true, msg: `已抢到 ${h.hero}` };
   } catch (e) {
     if (e.code === "GONE") {
-      h.status = "GONE"; heroes[key] = h; await save(env, "purpleHeroes", heroes);
+      delete heroes[key]; await save(env, "purpleHeroes", heroes);
       await addLog(env, `抢购失败: ${h.hero} 已不在卡池`, "warn");
       return { ok: false, msg: "武将已不在卡池" };
     }
@@ -572,7 +567,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
     <button class="ghost" onclick="job('scan')">扫描紫将</button>
     <button id="pauser" class="ghost" onclick="togglePause()">暂停自动化</button>
   </div></div>
-<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询 · 酒馆30分钟保护期</span> <span class="tag" id="herocap"></span></h2>
+<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
@@ -629,7 +624,7 @@ async function render(){
           ?'<button class="ghost" onclick="res(\\''+k+'\\')">取消</button> <button class="warn" onclick="grab(\\''+k+'\\')">立即抢</button>'
           :'<button onclick="res(\\''+k+'\\')">预约抢购</button>';
         return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':'')+'</td><td><span class="cd">'+cd(h.protectionEndsAt)+'</span></td><td>'+st+'</td><td class="row">'+btn+'</td></tr>'}).join('')+'</table>')
-      :'<p class="muted">暂无存活紫将（'+Object.keys(s.heroes||{}).length+' 条历史记录）</p>';
+      :'<p class="muted">暂无存活紫将</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
 }
@@ -714,7 +709,7 @@ async function handleApi(request, env, ctx) {
     if (name === "signin") { const r = await jobSignIn(env); const d = await load(env, "daily", {}); d.signin = true; d.date = bj(Date.now()).date; await save(env, "daily", d); await addLog(env, `手动签到: ${r.join("; ")}`); return json({ ok: true, result: r }); }
     if (name === "hourly") { const r = await jobHourly(env); await addLog(env, `手动整点任务: ${r.join("; ")}`); return json({ ok: true, result: r }); }
     if (name === "mine") { const r = await mineOnce(env); if (r === "OK") { const d = await load(env, "daily", {}); d.mining = (d.mining || 0) + 1; await save(env, "daily", d); } await addLog(env, `手动开采: ${r}`); return json({ ok: true, result: r }); }
-    if (name === "scan") { const r = await jobPurpleScan(env); for (const f of r) await addLog(env, `发现紫将: ${f}`, "success"); return json({ ok: true, found: r }); }
+    if (name === "scan") { const r = await jobPurpleScan(env); for (const f of r) await addLog(env, `发现紫将: ${f}`, "success"); return json({ ok: true, result: [r.length ? ('发现 '+r.length+' 个: '+r.join('; ')) : '无新发现'], found: r }); }
     return json({ error: "unknown job" }, 400);
   }
   return json({ error: "not found" }, 404);
