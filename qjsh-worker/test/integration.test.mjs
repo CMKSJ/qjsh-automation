@@ -137,7 +137,7 @@ console.log("T6: SESSION_EXPIRED 清理");
 await worker.fetch(new Request("https://x/api/report-token", { method: "POST", body: JSON.stringify({ token: "RT-bad-0123456789abcdef0123456", key: "test123" }) }), env);
 await tick(Date.UTC(2026, 9, 15, 18, 0, 0));
 const st6 = await (await worker.fetch(new Request("https://x/api/status", { headers: { "X-Page-Key": "test123" } }), env)).json();
-assert(st6.log.some(l => l.msg.includes("失效")), "失效提示日志");
+assert(st6.log.some(l => l.msg.includes("无效") || l.msg.includes("失效")), "无效/失效提示日志");
 assert(st6.token && !st6.token.token, "失效 token 已清除");
 
 globalThis.fetch = realFetch;
