@@ -20,6 +20,8 @@ const PURPLE_PLUS = ["PURPLE", "ORANGE"];  // 紫将+橙将
 const EXCHANGE_TIERS = [8, 5, 1];       // 凑 12 银票的贪心档位
 const DAILY_MINING = 10;
 const LOG_MAX = 300;
+const GONE_TTL_MS = 30 * 60_000;      // 售罄保留 30 分钟
+const GRABBED_TTL_MS = 2 * 3600_000;  // 购得战果保留 2 小时
 const NO_TOKEN_WARN_MS = 3600_000;      // 无 token 提示限频 1 小时
 
 // ---------- 存储：KV 优先，内存降级 ----------
@@ -371,14 +373,17 @@ async function jobPurpleScan(env) {
             };
             if (isNew) found.push(`${a.owner}家 ${a.hero}(${cand.quality}${cand.star}星)`);
           } else if (heroes[key]?.status === "ALIVE") {
-            delete heroes[key];
+            heroes[key].status = "GONE";
+            heroes[key].goneAt = new Date().toISOString();
           }
         } catch (e) { /* 单条失败不影响其他 */ }
       }
 
       // 存活复核
+      // TTL 清理：售罄超 30 分钟、购得超 2 小时自动移除
       for (const [key, h] of Object.entries(heroes)) {
-        if (h.status === "GONE") { delete heroes[key]; continue; }
+        if (h.status === "GONE" && Date.now() - Date.parse(h.goneAt || 0) > GONE_TTL_MS) { delete heroes[key]; continue; }
+        if (h.status === "GRABBED" && Date.now() - Date.parse(h.grabbedAt || 0) > GRABBED_TTL_MS) { delete heroes[key]; continue; }
         if (h.status !== "ALIVE") continue;
         if (found.some(f => f.includes(h.hero) && f.includes(h.owner))) continue;
         try {
@@ -471,9 +476,11 @@ async function grabHero(env, key, manual = false) {
     return { ok: true, msg: `已抢到 ${h.hero}` };
   } catch (e) {
     if (e.code === "GONE") {
-      delete heroes[key]; await save(env, "purpleHeroes", heroes);
-      await addLog(env, `抢购失败: ${h.hero} 已不在卡池`, "warn");
-      return { ok: false, msg: "武将已不在卡池" };
+      h.status = "GONE";
+      h.goneAt = new Date().toISOString();
+      heroes[key] = h; await save(env, "purpleHeroes", heroes);
+      await addLog(env, `售罄: ${h.hero} 已被别人抢先`, "warn");
+      return { ok: false, msg: "武将已不在卡池（售罄）" };
     }
     if (/PROTECT/i.test(e.code || "")) {
       // 保护期与记录不符（多为卡池刷新产生新保护期）：拉最新保护期决定重排或短重试
@@ -751,7 +758,7 @@ async function render(){
         }
       }
     }
-    const hs=Object.values(s.heroes||{}).filter(h=>h.status!=='GONE');
+    const hs=Object.values(s.heroes||{});
     const liveKeys=hs.filter(h=>h.status==='ALIVE').map(h=>h.key);
     if(knownHeroKeys===null){knownHeroKeys=new Set(liveKeys)}
     else{
@@ -760,12 +767,13 @@ async function render(){
     }
     $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>成本</th><th>保护期</th><th>状态</th><th></th></tr>'+
       hs.map(h=>{const k=h.key.replace(/"/g,'&quot;');
-        const st=h.status==='GRABBED'?'<span class="st-GRABBED">已抢到</span>':h.reserved?'<span class="st-ALIVE">已预约</span>':'';
-        const btn=h.status==='GRABBED'?'':h.reserved
+        const st=h.status==='GRABBED'?'<span class="st-GRABBED">购得</span>':h.status==='GONE'?'<span class="st-GONE">售罄</span>':h.reserved?'<span class="st-ALIVE">已预约</span>':'<span class="st-ALIVE">在售</span>';
+        const btn=h.status!=='ALIVE'?'':h.reserved
           ?'<button class="ghost" onclick="res(\\''+k+'\\')">取消</button> <button class="warn" onclick="grab(\\''+k+'\\')">立即抢</button>'
           :'<button onclick="res(\\''+k+'\\')">预约抢购</button>';
-        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':'')+'</td><td><span class="cd">'+cd(h.protectionEndsAt)+'</span></td><td>'+st+'</td><td class="row">'+btn+'</td></tr>'}).join('')+'</table>')
-      :'<p class="muted">暂无存活紫将</p>';
+        const cdtxt=h.status==='ALIVE'?'<span class="cd">'+cd(h.protectionEndsAt)+'</span>':'—';
+        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':'')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td class="row">'+btn+'</td></tr>'}).join('')+'</table>')
+      :'<p class="muted">暂无监控目标</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
 }
