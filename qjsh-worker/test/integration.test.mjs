@@ -145,36 +145,28 @@ assert(pr.paused === false, "恢复生效");
 
 // ==== T5c: 玩家活跃自动暂停（操作版本指纹）====
 console.log("T5c: 活跃检测");
-// progressVersion 每次请求 +1（模拟手机持续操作）
-let progN = 155;
 const origHome = routes["GET /api/v1/home"];
-routes["GET /api/v1/home"] = () => {
-  const d = origHome(null);
-  d.data.player.progressVersion = ++progN;
-  return d;
-};
-// 先跑一次 tick 建立基线
+let progN = 155;
+routes["GET /api/v1/home"] = () => { const d = origHome(null); d.data.player.progressVersion = progN; return d; };
+
+// 基线 tick（拨宽限，排除 T2 整点任务的自身操作）
 await tick(Date.UTC(2026, 9, 15, 17, 12, 0));
-// 把 T2 整点任务留下的自身操作宽限拨回 5 分钟前（避免吞掉本次指纹变化）
 {
-  const memStore = globalThis.__QJSH_MEM__;
-  const act = JSON.parse(memStore.get("activity") || "{}");
+  const act = JSON.parse(globalThis.__QJSH_MEM__.get("activity") || "{}");
   act.lastSelfActionAt = Date.now() - 5 * 60_000;
-  memStore.set("activity", JSON.stringify(act));
+  globalThis.__QJSH_MEM__.set("activity", JSON.stringify(act));
 }
-// 再 tick：指纹变化 → 活跃 → 任务被拦截（17:15 非 %5==2 分，整点 hourly 已做过…用 17:20 验证：非整点不跑 hourly，验证点改为活跃状态）
+// 玩家操作：指纹变化
+progN = 999;
 await tick(Date.UTC(2026, 9, 15, 17, 13, 0));
 let stA = await (await worker.fetch(new Request("https://x/api/status", { headers: { "X-Page-Key": "test123" } }), env)).json();
 assert(stA.activity && stA.activity.active === true, "指纹变化 → 检测为活跃");
-// 恢复 mock（progressVersion 固定）
-routes["GET /api/v1/home"] = () => { const d = origHome(null); d.data.player.progressVersion = 155; return d; };
-// 模拟 10 分钟无操作：直接改 activity.lastActiveAt 为 11 分钟前
-const memHack = await (async () => {
-  // 通过 KV 写不进（无绑定），改 globalThis 内存（worker 用同一实例）
-  return true;
-})();
-// 利用 /api/job scan? 不改了：改为验证 active 超时逻辑通过再次 tick 后（指纹不变 → active 仍 true 直到 10 分钟）
-// 时间推进由 scheduledTime 决定，tick 到 17:25（12 分钟后，指纹未变 → active=false）
+// 玩家停止操作：指纹固定（progN 保持 999），拨 lastActiveAt 到 11 分钟前
+{
+  const act = JSON.parse(globalThis.__QJSH_MEM__.get("activity") || "{}");
+  act.lastActiveAt = Date.now() - 11 * 60_000;
+  globalThis.__QJSH_MEM__.set("activity", JSON.stringify(act));
+}
 await tick(Date.UTC(2026, 9, 15, 17, 25, 0));
 stA = await (await worker.fetch(new Request("https://x/api/status", { headers: { "X-Page-Key": "test123" } }), env)).json();
 assert(stA.activity.active === false, "10 分钟无操作 → 判定下线恢复");
