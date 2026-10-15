@@ -467,10 +467,10 @@ def job_purple_scan():
                             if is_new:
                                 label = f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)"
                                 found.append(label)
-                                if (cand["star"] or 0) >= 5:
+                                if cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5):
                                     heroes[key]["reserved"] = True
                                     heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
-                                    add_log(f"⭐ 五星目标自动预约: {label}", "success")
+                                    add_log(f"⭐ 高价值目标自动预约: {label}", "success")
                         elif heroes.get(key, {}).get("status") == "ALIVE":
                             heroes[key]["status"] = "GONE"
                             heroes[key]["goneAt"] = datetime.now(timezone.utc).isoformat()
