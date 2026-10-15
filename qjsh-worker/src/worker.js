@@ -163,6 +163,23 @@ async function mineOnce(env) {
   }
 }
 
+// 快照：账号 + 货币 + 武将容量（tavern 接口）
+async function writeSnapshot(env, token, home) {
+  let heroCapacity = null;
+  try {
+    const t = await api("GET", "/api/v1/tavern", { token });
+    heroCapacity = { capacity: t.heroCapacity, owned: t.ownedHeroCount, remaining: t.remainingHeroCapacity };
+  } catch (e) { /* 容量拉取失败不阻断 */ }
+  await save(env, "snapshot", {
+    at: new Date().toISOString(),
+    player: { displayName: home.player.displayName, level: home.player.level,
+              combatPower: home.player.combatPower, provisionsCapacity: home.player.provisionsCapacity },
+    currencies: home.economy.currencies,
+    mining: home.mining,
+    heroCapacity,
+  });
+}
+
 async function jobHourly(env) {
   const out = [];
   try {
@@ -212,13 +229,7 @@ async function jobHourly(env) {
         out.push("收租: 未驻守或无可收");
       }
 
-      await save(env, "snapshot", {
-        at: new Date().toISOString(),
-        player: { displayName: home.player.displayName, level: home.player.level,
-                  combatPower: home.player.combatPower, provisionsCapacity: home.player.provisionsCapacity },
-        currencies: home.economy.currencies,
-        mining: home.mining,
-      });
+      await writeSnapshot(env, token, home);
     });
   } catch (e) { out.push(`失败: ${e.code || e.message}`); }
   return out;
@@ -236,6 +247,10 @@ async function jobPurpleScan(env) {
   const found = [];
   try {
     await withSession(env, async (token) => {
+      try {
+        const home0 = await api("GET", "/api/v1/home", { token });
+        await writeSnapshot(env, token, home0);
+      } catch (e) { /* 快照失败不阻断扫描 */ }
       const ann = await api("GET", "/api/v1/home-announcements", { token });
       const appearances = (ann.entries || [])
         .map(e => ({ ...parseAppearance(e.content || ""), at: e.startsAt }))
@@ -311,6 +326,13 @@ async function grabHero(env, key, manual = false) {
   const h = heroes[key];
   if (!h) return { ok: false, msg: "目标不存在" };
   if (h.status === "GRABBED") return { ok: false, msg: "已抢购成功" };
+  // 武将位满员预检（快照容量；remaining<=0 拒绝）
+  const cap = (await load(env, "snapshot", {})).heroCapacity;
+  if (cap && cap.remaining <= 0) {
+    const msg = `武将位已满（${cap.owned}/${cap.capacity}），请先解雇或提取武魂腾出位置`;
+    if (!manual) await warnOnce(env, "capFull", "抢购跳过: " + msg);
+    return { ok: false, msg };
+  }
 
   try {
     await withSession(env, async (token) => {
@@ -474,7 +496,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
     <button class="ghost" onclick="job('mine')">开采一次</button>
     <button class="ghost" onclick="job('scan')">扫描紫将</button>
   </div></div>
-<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询 · 酒馆30分钟保护期</span></h2>
+<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询 · 酒馆30分钟保护期</span> <span class="tag" id="herocap"></span></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
@@ -504,6 +526,8 @@ async function render(){
     const provC=(s.snapshot?.currencies||[]).find(c=>c.code==='PROVISIONS');
     const provNow=provC?provC.balance:'-';
     const provCap=s.snapshot?.player?.provisionsCapacity??'-';
+    window.__cap=s.snapshot?.heroCapacity||null;
+    $('herocap').textContent=window.__cap?('武将 '+window.__cap.owned+'/'+window.__cap.capacity+(window.__cap.remaining<=0?' (满)':'')):'';
     $('daily').innerHTML=[
       ['签到',d.signin?'✓ 已完成':'待 00:01'],
       ['矿山',d.mining+'/10 次'],
@@ -527,8 +551,9 @@ async function render(){
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
 }
-async function res(k){await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
-async function grab(k){await req('grab',{method:'POST',body:JSON.stringify({key:k})});render()}
+async function capFull(){const c=window.__cap;return c&&c.remaining<=0}
+async function res(k){if(capFull()){return alert('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置，否则到期也抢不了')}await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
+async function grab(k){if(capFull()){return alert('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置')}const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)alert(r.msg||'抢购失败');render()}
 async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\\n'):(''+res);if(r.found&&r.found.length)txt+='\\n'+r.found.join('\\n');alert(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
 </script></body></html>`;
@@ -554,13 +579,7 @@ async function handleApi(request, env) {
     // 立即验证并生成账号快照（面板马上能看到账号信息）
     try {
       const home = await api("GET", "/api/v1/home", { token: body.token });
-      await save(env, "snapshot", {
-        at: new Date().toISOString(),
-        player: { displayName: home.player.displayName, level: home.player.level,
-                  combatPower: home.player.combatPower, provisionsCapacity: home.player.provisionsCapacity },
-        currencies: home.economy.currencies,
-        mining: home.mining,
-      });
+      await writeSnapshot(env, body.token, home);
       await addLog(env, `accessToken 已上报 ✓ ${home.player.displayName} Lv${home.player.level}（书签）`, "success");
     } catch (e) {
       if (e.code === "SESSION_EXPIRED" || e.code === "SESSION_REPLACED" || e.status === 401) {
