@@ -1,6 +1,7 @@
 name = "qjsh-automation"
 main = "src/worker.js"
 compatibility_date = "2026-01-01"
+account_id = "c1aced9a14f3b8908fa3ad6d954a9726"
 
 # 每分钟一个 tick，北京时间（UTC+8）的调度在 worker 内部判断：
 #   UTC 16:01 = 北京 00:01 → 签到 + 矿山开采计划
@@ -10,15 +11,12 @@ compatibility_date = "2026-01-01"
 [triggers]
 crons = ["* * * * *"]
 
+[[kv_namespaces]]
+binding = "QJSH_KV"
+id = "7084dbc3eaf34eb98812bc54f8777888"
+
 # 凭据与访问控制（不要写进本文件）：
 #   npx wrangler secret put PAGE_KEY   # 面板访问密码 + 书签上报密钥
 #
 # accessToken 由书签在游戏页面捕获后上报（POST /api/report-token），
 # Worker 不做账密登录，不会顶掉手机会话。
-
-# ---- 可选：KV 持久化（不加也能跑，用内存降级；实例重启需重新点书签上报 token） ----
-# 1) wrangler kv namespace create QJSH_KV
-# 2) 取消下面注释并填入返回的 id：
-# [[kv_namespaces]]
-# binding = "QJSH_KV"
-# id = "<namespace-id>"
