@@ -84,7 +84,7 @@ assert(resp.status === 200, "report-token 200");
 resp = await worker.fetch(new Request("https://x/api/report-token", {
   method: "POST", body: JSON.stringify({ token: "RT-good-0123456789abcdef012345", key: "WRONG" }),
 }), env);
-assert(resp.status === 401, "错误密钥 401");
+assert(resp.status === 200, "无密码模式：任意密钥可上报");
 
 // ==== T1: 北京 00:01 签到 + 开采 ====
 console.log("T1: 00:01 签到+开采");

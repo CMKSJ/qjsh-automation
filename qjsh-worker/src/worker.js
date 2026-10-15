@@ -448,8 +448,6 @@ button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 1
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
 button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-#login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:9}
-#login input{background:#131a29;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px 14px;font-size:15px;width:240px}
 .cd{font-variant-numeric:tabular-nums;color:var(--warn)}
 .muted{color:var(--dim);font-size:12px}
 .tag{font-size:11px;color:var(--dim)}
@@ -457,7 +455,6 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #tokbanner .code{background:#0c111c;border:1px dashed var(--line);border-radius:8px;padding:8px;margin-top:8px;font-size:11px;word-break:break-all;font-family:monospace;max-height:90px;overflow:auto}
 #tokbanner ol{margin:6px 0 0 18px;font-size:12.5px}
 </style></head><body>
-<div id="login" hidden><h3>访问密码</h3><input id="pwd" type="password" placeholder="输入访问密码" onkeydown="if(event.key==='Enter')doLogin()"><button onclick="doLogin()">进入</button><p id="lerr" class="muted"></p></div>
 <h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span></h1>
 <div class="card" id="tokbanner" hidden>
   <h2>尚未上报 accessToken</h2>
@@ -481,12 +478,11 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
-let KEY=localStorage.getItem('pk')||'';
+const KEY='';
 const ORIGIN=location.origin;
 const $=id=>document.getElementById(id);
 const BM='javascript:(function(){var W=\\''+ORIGIN+'\\',K=\\''+KEY+'\\';if(window.__qjsh)return alert(\\'监听已开启，请在游戏里点任意操作\\');window.__qjsh=1;var F=window.fetch,X=XMLHttpRequest.prototype.open,S=XMLHttpRequest.prototype.setRequestHeader;function up(t){try{navigator.sendBeacon(W+\\'/api/report-token\\',JSON.stringify({token:t,key:K}))}catch(e){}window.__qjsh=0}window.fetch=function(i,o){try{var h=(o&&o.headers)||(i&&i.headers),a=h&&(h.Authorization||(h.get&&h.get(\\'Authorization\\')));if(a)up(String(a).replace(\\'Bearer \\',\\'\\'))}catch(e){}return F.apply(this,arguments)};XMLHttpRequest.prototype.open=function(){return X.apply(this,arguments)};XMLHttpRequest.prototype.setRequestHeader=function(k,v){try{if(String(k).toLowerCase()==\\'authorization\\'&&v)up(String(v).replace(\\'Bearer \\',\\'\\'))}catch(e){}return S.apply(this,arguments)};alert(\\'监听已开启：在游戏里点击任意操作（或等几秒），token 会自动上报\\')})()';
-async function req(path,opts={}){const r=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json','X-Page-Key':KEY,...(opts.headers||{})}});if(r.status===401){$('login').hidden=false;$('lerr').textContent='密码不正确，请重试';throw 0}return r.json()}
-function doLogin(){KEY=$('pwd').value;localStorage.setItem('pk',KEY);$('lerr').textContent='';render()}
+async function req(path,opts={}){const r=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}});return r.json()}
 function copyBM(){navigator.clipboard&&navigator.clipboard.writeText($('bmcode').textContent)}
 const CUR={COPPER:'铜钱',YUANBAO:'元宝',SILVER_TICKET:'银票',PROVISIONS:'粮草',BATTLE_ACHIEVEMENT:'战功'};
 function fmt(n){return (+n).toLocaleString('zh-CN')}
@@ -495,7 +491,6 @@ const inflight=new Set();
 async function render(){
   try{
     const s=await req('status');
-    $('login').hidden=true;  // 鉴权通过，收起密码蒙层
     const hasTok=!!(s.token&&s.token.token);
     $('tokbanner').hidden=hasTok;
     if(!hasTok&&KEY)$('bmcode').textContent=BM;
@@ -534,13 +529,6 @@ async function job(n){await req('job',{method:'POST',body:JSON.stringify({name:n
 render();setInterval(render,10000);
 </script></body></html>`;
 
-function authOk(request, env) {
-  if (!env.PAGE_KEY) return true; // 未设密码则开放（不建议）
-  const key = request.headers.get("X-Page-Key") ||
-    new URL(request.url).searchParams.get("key");
-  return key === env.PAGE_KEY;
-}
-
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), {
     status, headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -555,8 +543,6 @@ async function handleApi(request, env) {
     let body;
     try { body = JSON.parse(await request.text()); }
     catch { return json({ error: "bad json" }, 400); }
-    const key = body.key || request.headers.get("X-Page-Key") || url.searchParams.get("key");
-    if (env.PAGE_KEY && key !== env.PAGE_KEY) return json({ error: "unauthorized" }, 401);
     if (!body.token || typeof body.token !== "string" || body.token.length < 20) {
       return json({ error: "invalid token" }, 400);
     }
@@ -564,8 +550,6 @@ async function handleApi(request, env) {
     await addLog(env, "accessToken 已上报 ✓（书签）", "success");
     return json({ ok: true });
   }
-
-  if (!authOk(request, env)) return json({ error: "unauthorized" }, 401);
 
   if (route === "status" && request.method === "GET") {
     const [token, daily, heroes, log, snapshot] = await Promise.all([
@@ -605,7 +589,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) return handleApi(request, env);
-    return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(scheduled(event, env));
