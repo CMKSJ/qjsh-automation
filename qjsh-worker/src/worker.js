@@ -680,7 +680,7 @@ async function render(){
     $('pauser').textContent=window.__paused?'▶ 恢复自动化':'暂停自动化';
     $('pauser').style.borderColor=window.__paused?'var(--err)':'var(--line)';
     $('pauser').style.color=window.__paused?'var(--err)':'';
-    $('herocap').textContent=window.__cap?('武将 '+window.__cap.owned+'/'+window.__cap.capacity+(window.__cap.remaining<=0?' (满)':'')):'';
+    $('herocap').textContent=window.__cap?('武将 '+window.__cap.owned+'/'+window.__cap.capacity+(window.__cap.owned>=window.__cap.capacity?' (满)':'')):'';
     $('daily').innerHTML=[
       ['签到',d.signin?'✓ 已完成':'待 00:01'],
       ['矿山',d.mining+'/10 次'],
@@ -721,7 +721,7 @@ async function render(){
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
 }
-async function capFull(){const c=window.__cap;return c&&c.remaining<=0}
+function capFull(){const c=window.__cap;return !!(c&&c.capacity>0&&c.owned>=c.capacity)}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
 async function res(k){const h=window.__heroes&&window.__heroes[k];if((!h||!h.reserved)&&capFull())toast('快照显示武将位已满('+window.__cap.owned+'/'+window.__cap.capacity+')，若已腾位置可忽略(到期按实时容量校验)',false);await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
 async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
