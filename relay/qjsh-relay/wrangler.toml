@@ -1,5 +1,0 @@
-name = "qjsh-automation"
-main = "src/worker.js"
-compatibility_date = "2026-01-01"
-account_id = "c1aced9a14f3b8908fa3ad6d954a9726"
-# 中继不需要 cron 与 KV
