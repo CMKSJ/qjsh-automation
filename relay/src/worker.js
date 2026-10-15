@@ -16,6 +16,6 @@ export default {
         return new Response(JSON.stringify({ ok: false, error: "relay_failed: " + e.message }), { status: 502, headers: cors });
       }
     }
-    return new Response(JSON.stringify({ ok: true, service: "qjsh-relay", target: "http://72.18.82.231:8787" }), { headers: cors });
+    return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain" } });
   },
 };
