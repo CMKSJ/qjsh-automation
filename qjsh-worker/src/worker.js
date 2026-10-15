@@ -458,10 +458,32 @@ async function checkReservations(env) {
   const now = Date.now();
   for (const [key, h] of Object.entries(heroes)) {
     if (h.status !== "ALIVE" || !h.reserved) continue;
-    if (now >= Date.parse(h.protectionEndsAt)) {
+    const dt = Date.parse(h.protectionEndsAt) - now;
+    if (dt <= 0) {
       await grabHero(env, key);
+    } else if (dt <= 50_000) {
+      // 秒级蹲点：睡到到期前 150ms，提前量 + 连发（浏览器端亦有精确定时器双保险）
+      const locks = globalThis.__grabLocks ?? (globalThis.__grabLocks = new Set());
+      if (locks.has(key)) continue;
+      locks.add(key);
+      try {
+        await new Promise(r => setTimeout(r, Math.max(0, dt - 150)));
+        await grabBurst(env, key);
+      } finally { locks.delete(key); }
     }
   }
+}
+
+// 保护期内连发：PROTECTION 未开则 120ms 后重试，最多 4 次；其他错误（满员/被抢）即停
+async function grabBurst(env, key) {
+  let r = { ok: false, msg: "" };
+  for (let i = 0; i < 4; i++) {
+    r = await grabHero(env, key);
+    if (r.ok) return r;
+    if (!/PROTECTION|保护/i.test(r.msg || "")) return r;
+    await new Promise(res => setTimeout(res, 120));
+  }
+  return r;
 }
 
 // ---------- 调度 ----------
@@ -665,8 +687,19 @@ async function render(){
       ['粮草',provNow+'/'+provCap],
     ].map(([k,v])=>'<div class="kv"><span>'+k+'</span><b>'+v+'</b></div>').join('');
     for(const h of Object.values(s.heroes||{})){
-      if(h.reserved&&h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date()&&!inflight.has(h.key)){
-        inflight.add(h.key);grab(h.key).finally(()=>inflight.delete(h.key));
+      if(h.reserved&&h.status==='ALIVE'){
+        const dt=new Date(h.protectionEndsAt)-Date.now();
+        if(dt<=0&&!inflight.has(h.key)){inflight.add(h.key);grab(h.key).finally(()=>inflight.delete(h.key));}
+        else if(dt>0&&dt<3600000&&!window.__armed){/* armed 初始化见下 */}
+      }
+    }
+    (window.__armed=window.__armed||{});
+    for(const h of Object.values(s.heroes||{})){
+      if(h.reserved&&h.status==='ALIVE'&&h.protectionEndsAt&&!window.__armed[h.key]){
+        const dt=new Date(h.protectionEndsAt)-Date.now();
+        if(dt>0&&dt<3600000){
+          window.__armed[h.key]=setTimeout(function(k){return function(){grab(k)}}(h.key),Math.max(0,dt-150));
+        }
       }
     }
     const hs=Object.values(s.heroes||{}).filter(h=>h.status!=='GONE');
