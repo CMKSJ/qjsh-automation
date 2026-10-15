@@ -309,6 +309,95 @@ def _parse_ts(iso):
         return 0.0
 
 
+QUALITY_RANK = {"ORANGE": 5, "PURPLE": 4, "BLUE": 3, "GREEN": 2, "WHITE": 1}
+
+
+def job_training(token):
+    out = []
+    d = api("GET", "/api/v1/hero-training", token=token)
+    heroes_list = api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or []
+    hmap = {h["heroInstanceId"]: h for h in heroes_list}
+    maxed = load("maxedHeroes", [])
+    claimed = False
+
+    # 1) 领取完成的训练
+    for s in d.get("slots") or []:
+        sess = s.get("session")
+        if not sess or _parse_ts(sess.get("endsAt")) > time.time():
+            continue
+        hid = sess.get("heroInstanceId")
+        before = str(hmap.get(hid, {}).get("experience"))
+        try:
+            api("POST", "/api/v1/hero-training/slots/" + str(s["slotNumber"]) + "/claims", token=token,
+                body={"operationId": op_id(), "expectedSlotVersion": str(s.get("version"))})
+            claimed = True
+            out.append("领取训练: " + str(sess.get("heroName")))
+            try:
+                hl2 = api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or []
+                h2 = next((x for x in hl2 if x["heroInstanceId"] == hid), {})
+                if h2 and str(h2.get("experience")) == before:
+                    if hid not in maxed:
+                        maxed.append(hid)
+                        out.append(str(sess.get("heroName")) + " 经验未增长(已无法获得经验)，移出候选")
+            except Exception:
+                pass
+        except Exception as e:
+            out.append("领取训练失败(slot" + str(s["slotNumber"]) + "): " + str(getattr(e, "code", e)))
+    if maxed != load("maxedHeroes", []):
+        save("maxedHeroes", maxed)
+
+    # 2) 空闲槽安排新训练（claim 后重新拉状态拿新版本号）
+    if claimed:
+        d = api("GET", "/api/v1/hero-training", token=token)
+    plans = sorted([p for p in (d.get("plans") or []) if p.get("available")],
+                   key=lambda x: -x.get("durationSeconds", 0))
+    training_ids = {s.get("session", {}).get("heroInstanceId") for s in (d.get("slots") or []) if s.get("session")}
+    cands = sorted(
+        [h for h in heroes_list if h["heroInstanceId"] not in training_ids and h["heroInstanceId"] not in maxed],
+        key=lambda h: (-QUALITY_RANK.get(h.get("quality"), 0), -(h.get("star") or 0)))
+    if not cands:
+        if not out:
+            out.append("训练: 无可训武将")
+        return out
+    copper = None
+    try:
+        copper = api("GET", "/api/v1/home", token=token)["economy"]["currencies"]
+        copper = next(c["balance"] for c in copper if c["code"] == "COPPER")
+    except Exception:
+        copper = None
+    for s in d.get("slots") or []:
+        if s.get("session") or not s.get("unlocked"):
+            continue
+        if not cands:
+            break
+        h = cands.pop(0)
+        started = False
+        for pl in plans:
+            if copper is not None and copper < pl["copperCost"]:
+                continue
+            try:
+                api("POST", "/api/v1/hero-training/starts", token=token, body={
+                    "operationId": op_id(), "slotNumber": s["slotNumber"],
+                    "expectedSlotVersion": str(s.get("version")),
+                    "heroInstanceId": h["heroInstanceId"], "expectedHeroVersion": str(h.get("version", "0")),
+                    "planCode": pl["planCode"], "useExperienceBonus": False})
+                if copper is not None:
+                    copper -= pl["copperCost"]
+                out.append("开始训练: " + h["name"] + "(" + h["quality"] + str(h["star"]) + "星) " + pl.get("displayName", pl["planCode"]))
+                started = True
+                break
+            except Exception as e:
+                code = getattr(e, "code", "")
+                if code in ("INSUFFICIENT_FUNDS", "CURRENCY_INSUFFICIENT"):
+                    continue
+                out.append("开始训练失败(" + h["name"] + "): " + str(code or e))
+                break
+        _ = started
+    if not out:
+        out.append("训练: 全部进行中")
+    return out
+
+
 def job_territory_income(token):
     """领地城市驻守铜钱：readyAt 已过/有铜 -> income-collections"""
     out = []
@@ -405,6 +494,7 @@ def job_hourly():
 
             out.extend(job_territory_income(token))
             out.extend(job_resource_harvest(token))
+            out.extend(job_training(token))
 
             write_snapshot(token, home, force=True)
         with_session(do)
