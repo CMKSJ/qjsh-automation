@@ -549,7 +549,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #tokbanner ol{margin:6px 0 0 18px;font-size:12.5px}
 </style></head><body>
 <div id="toast"></div>
-<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span></h1>
+<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span><button id="sndbtn" class="ghost" style="padding:2px 8px;margin-left:auto;font-size:15px" onclick="toggleSnd()">🔔</button></h1>
 <div class="card" id="tokbanner" hidden>
   <h2>尚未上报 accessToken</h2>
   <ol>
@@ -577,6 +577,11 @@ const KEY='';
 const ORIGIN=location.origin;
 const $=id=>document.getElementById(id);
 function toast(t,ok){var e=$('toast');e.textContent=t;e.style.display='block';e.style.borderColor=ok===false?'var(--err)':'var(--acc)';clearTimeout(window.__tt);window.__tt=setTimeout(function(){e.style.display='none'},4000)}
+let audioCtx=null,soundOn=localStorage.getItem('snd')!=='0';
+function unlockAudio(){try{audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();audioCtx.resume()}catch(e){}}
+document.addEventListener('pointerdown',unlockAudio,{once:true});
+function beep(){if(!soundOn)return;try{unlockAudio();if(!audioCtx||audioCtx.state!=='running')return;var t=audioCtx.currentTime;[[880,0],[1174,0.16],[1568,0.32]].forEach(function(fd){var o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.value=fd[0];o.connect(g);g.connect(audioCtx.destination);g.gain.setValueAtTime(0.0001,t+fd[1]);g.gain.exponentialRampToValueAtTime(0.25,t+fd[1]+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+fd[1]+0.45);o.start(t+fd[1]);o.stop(t+fd[1]+0.5)})}catch(e){}}
+function toggleSnd(){soundOn=!soundOn;localStorage.setItem('snd',soundOn?'1':'0');$('sndbtn').textContent=soundOn?'🔔':'🔕';$('sndbtn').style.opacity=soundOn?'1':'0.5';if(soundOn){unlockAudio();beep()}}
 const BM='javascript:(function(){var W=\\''+ORIGIN+'\\';function arm(){window.__qjsh=1;var F=window.fetch,X=XMLHttpRequest.prototype.open,S=XMLHttpRequest.prototype.setRequestHeader;function ok(t){try{navigator.sendBeacon(W+\\'/api/report-token\\',JSON.stringify({token:t}))}catch(e){}window.fetch=F;XMLHttpRequest.prototype.setRequestHeader=S;XMLHttpRequest.prototype.open=X;window.__qjsh=2}window.fetch=function(i,o){try{var u=\\'\\'+(i&&i.url||i);var h=(o&&o.headers)||(i&&i.headers),a=h&&(h.Authorization||(h.get&&h.get(\\'Authorization\\')));if(a&&u.indexOf(\\'/auth/\\')<0)ok(String(a).replace(\\'Bearer \\',\\'\\'))}catch(e){}return F.apply(this,arguments)};XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return X.apply(this,arguments)};XMLHttpRequest.prototype.setRequestHeader=function(k,v){try{if(String(k).toLowerCase()==\\'authorization\\'&&v&&(\\'\\'+this.__u).indexOf(\\'/auth/\\')<0)ok(String(v).replace(\\'Bearer \\',\\'\\'))}catch(e){}return S.apply(this,arguments)}}if(window.__qjsh===1)return alert(\\'监听已开启，请在游戏里点任意操作\\');arm();alert(\\'监听已开启：在游戏里点击任意操作（或等几秒），token 会自动上报\\')})()';
 async function req(path,opts={}){const r=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}});return r.json()}
 function copyBM(){var t=$('bmcode').textContent||BM;function ok(){toast('已复制！去浏览器「添加书签」，把网址替换为这段代码')}function fb(){var ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,t.length);var s=false;try{s=document.execCommand('copy')}catch(e){}document.body.removeChild(ta);s?ok():prompt('复制失败，请长按下面文本框手动复制:',t)}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,fb)}else{fb()}}
@@ -585,6 +590,7 @@ function fmt(n){return (+n).toLocaleString('zh-CN')}
 function fmtBJ(iso){var d=new Date(iso);if(isNaN(d))return '';d=new Date(d.getTime()+8*3600e3);var p=x=>String(x).padStart(2,'0');return p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
 function cd(iso){const s=Math.floor((new Date(iso)-Date.now())/1000);return s>0?Math.floor(s/60)+'分'+String(s%60).padStart(2,'0')+'秒':'已结束'}
 const inflight=new Set();
+let knownHeroKeys=null;
 async function render(){
   try{
     const s=await req('status');
@@ -601,6 +607,7 @@ async function render(){
     const provNow=provC?provC.balance:'-';
     const provCap=s.snapshot?.player?.provisionsCapacity??'-';
     window.__cap=s.snapshot?.heroCapacity||null;
+    $('sndbtn').textContent=soundOn?'🔔':'🔕';$('sndbtn').style.opacity=soundOn?'1':'0.5';
     const act=s.activity||{};
     $('hserver').textContent=(s.state?.serverId||'')+(act.active?' · 🟢玩家活跃(自动暂停中)':' · ⚪玩家离线(自动运行)');
     window.__paused=!!s.paused;
@@ -620,6 +627,12 @@ async function render(){
       }
     }
     const hs=Object.values(s.heroes||{}).filter(h=>h.status!=='GONE');
+    const liveKeys=hs.filter(h=>h.status==='ALIVE').map(h=>h.key);
+    if(knownHeroKeys===null){knownHeroKeys=new Set(liveKeys)}
+    else{
+      for(const k of liveKeys){if(!knownHeroKeys.has(k)){const nh=hs.find(x=>x.key===k);const label=nh?(nh.hero+'('+nh.quality+nh.star+'星 @'+nh.owner+'家)'):k;toast('发现新目标: '+label);beep()}}
+      knownHeroKeys=new Set(liveKeys);
+    }
     $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>成本</th><th>保护期</th><th>状态</th><th></th></tr>'+
       hs.map(h=>{const k=h.key.replace(/"/g,'&quot;');
         const st=h.status==='GRABBED'?'<span class="st-GRABBED">已抢到</span>':h.reserved?'<span class="st-ALIVE">已预约</span>':'';
