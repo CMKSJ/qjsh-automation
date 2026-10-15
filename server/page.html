@@ -146,7 +146,7 @@ async function render(){
           :expired?'<button class="warn" onclick="grab(\''+k+'\')">抢购</button>'
           :'<button onclick="res(\''+k+'\')">预约</button>';
         const cdtxt=h.status==='ALIVE'?'<span class="cd">'+cd(h.protectionEndsAt)+'</span>':'—';
-        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':'')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td class="row">'+btn+'</td></tr>'}).join('')+'</table>')
+        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':'')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
       :'<p class="muted">暂无监控目标</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
