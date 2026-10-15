@@ -193,13 +193,9 @@ def write_snapshot(token, home, force=False):
         pass
     try:
         r = api("GET", "/api/v1/resource-occupations", token=token)
-        slots = 2
-        try:
-            tr = api("GET", "/api/v1/territory/resources", token=token)
-            slots = len([s for s in (tr.get("slots") or []) if s.get("unlocked")]) or 2
-        except Exception:
-            pass
         occs = r.get("occupations") or []
+        # 占领上限与城市领地槽同源（territorySlots），随等级提升；家园资源槽总数(9)不是上限
+        slots = territory["slots"] if territory else 2
         nxt = min((_parse_ts(o.get("occupiedAt")) + 8 * 3600 - time.time() for o in occs), default=None)
         resources = {"occupied": len(occs), "slots": slots, "nextHarvestIn": (round(nxt) if nxt is not None else None)}
     except Exception:

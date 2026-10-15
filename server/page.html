@@ -7,7 +7,7 @@ body{background:var(--bg);color:var(--txt);font:14px/1.6 -apple-system,"Segoe UI
 h1{font-size:18px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 h1 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
-.card h2{font-size:14px;color:var(--dim);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+.card h2{font-size:14px;color:var(--dim);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
 .kv{display:flex;justify-content:space-between;padding:6px 10px;background:#131a29;border-radius:8px;font-size:13px}
 .kv b{color:var(--acc)}
@@ -53,10 +53,9 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
     <button class="ghost" onclick="job('signin')">立即签到</button>
     <button class="ghost" onclick="job('hourly')">立即整点任务</button>
     <button class="ghost" onclick="job('mine')">开采一次</button>
-    <button class="ghost" onclick="job('scan')">扫描紫将</button>
     <button id="pauser" class="ghost" onclick="togglePause()">暂停自动化</button>
   </div></div>
-<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span></h2>
+<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button class="ghost" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
