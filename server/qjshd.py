@@ -736,9 +736,8 @@ class Handler(BaseHTTPRequestHandler):
             add_log("[诊断] 上报到达(URL密钥路径)", "info")
             pass  # route 归一化见下
         elif u.path == "/api/report-token":
-            got_key = repr(self.headers.get("X-Relay-Key"))
-            add_log(f"[诊断] 上报到达(header密钥={got_key[:26]})", "info")
-            if self.headers.get("X-Relay-Key") != sec:
+            origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+            if self.headers.get("X-Relay-Key") != sec and "qjsh.top" not in origin:
                 self._send(404, {"Content-Type": "text/html"}, NGINX_404)
                 return
         elif not u.path.startswith(base + "/api/"):
@@ -846,7 +845,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     os.makedirs(STATE_DIR, exist_ok=True)
     threading.Thread(target=scheduler_loop, daemon=True).start()
-    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     add_log("qjshd 服务已启动（服务器版）", "success")
     print(f"qjshd listening on 0.0.0.0:{PORT}")
     srv.serve_forever()

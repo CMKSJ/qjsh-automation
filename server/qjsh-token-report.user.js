@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Q将水浒 · token 自动上报
 // @namespace    qjsh-automation
-// @version      1.4
+// @version      1.5
 // @description  游戏页面自动捕获 accessToken 并上报到自动化面板。右下角徽标：灰=待捕获 橙=上报中 绿=确认后4秒消失 红=失败常显(含原因)
 // @match        https://qjsh.top/*
 // @match        https://*.qjsh.top/*
@@ -9,7 +9,7 @@
 // @grant        none
 // ==/UserScript==
 (function () {
-  var W = "https://qjsh-automation.fhcmksj.workers.dev";
+  var W = "https://qjsh.duckdns.org";
   var lastTok = "";
 
   // ---- 状态徽标 ----

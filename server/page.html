@@ -61,7 +61,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
 const KEY='';
-const ORIGIN='https://qjsh-automation.fhcmksj.workers.dev';
+const ORIGIN='https://qjsh.duckdns.org';
 const $=id=>document.getElementById(id);
 function toast(t,ok){var e=$('toast');e.textContent=t;e.style.display='block';e.style.borderColor=ok===false?'var(--err)':'var(--acc)';clearTimeout(window.__tt);window.__tt=setTimeout(function(){e.style.display='none'},4000)}
 let audioCtx=null,soundOn=localStorage.getItem('snd')!=='0';

