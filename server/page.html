@@ -57,7 +57,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
     <button class="soft" onclick="job('mine')">开采一次</button>
     <button id="pauser" class="soft" onclick="togglePause()">暂停自动化</button>
   </div></div>
-<div class="card"><h2>稀有武将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
+<div class="card"><h2>稀有武将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button class="soft" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
@@ -101,7 +101,7 @@ async function render(){
     const act=s.activity||{};
     $('hserver').textContent=(s.state?.serverId||'')+(act.active?' · 🟢玩家活跃(自动暂停中)':' · ⚪玩家离线(自动运行)');
     window.__paused=!!s.paused;
-    $('pauser').textContent=window.__paused?'▶ 恢复自动化':'暂停自动化';
+    $('pauser').textContent=window.__paused?'恢复自动化':'暂停自动化';
     $('pauser').style.borderColor=window.__paused?'var(--err)':'';
     $('pauser').style.color=window.__paused?'var(--err)':'';
     $('pauser').style.background=window.__paused?'rgba(229,100,108,.13)':'';
