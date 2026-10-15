@@ -672,6 +672,7 @@ async function render(){
     const provNow=provC?provC.balance:'-';
     const provCap=s.snapshot?.player?.provisionsCapacity??'-';
     window.__cap=s.snapshot?.heroCapacity||null;
+    window.__heroes=s.heroes||{};
     $('sndbtn').textContent=soundOn?'🔔':'🔕';$('sndbtn').style.opacity=soundOn?'1':'0.5';
     const act=s.activity||{};
     $('hserver').textContent=(s.state?.serverId||'')+(act.active?' · 🟢玩家活跃(自动暂停中)':' · ⚪玩家离线(自动运行)');
@@ -722,7 +723,7 @@ async function render(){
 }
 async function capFull(){const c=window.__cap;return c&&c.remaining<=0}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
-async function res(k){if(capFull())toast('快照显示武将位已满('+window.__cap.owned+'/'+window.__cap.capacity+')，若已腾位置可忽略(到期按实时容量校验)',false);await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
+async function res(k){const h=window.__heroes&&window.__heroes[k];if((!h||!h.reserved)&&capFull())toast('快照显示武将位已满('+window.__cap.owned+'/'+window.__cap.capacity+')，若已腾位置可忽略(到期按实时容量校验)',false);await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
 async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
 async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\\n'):(''+res);if(r.found&&r.found.length)txt+='\\n'+r.found.join('\\n');toast(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
