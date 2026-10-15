@@ -18,3 +18,4 @@ check_syntax.py
 .wrangler/
 server/state/
 server/state_migrate/
+secret

@@ -35,6 +35,26 @@ GRABBED_TTL_S = 2 * 3600
 FP_NAMES = ["progress", "copper", "yuanbao", "ticket"]
 SNAP_WRITE_THROTTLE_S = 5 * 60
 
+PANEL_SECRET_FILE = os.path.join(STATE_DIR, "secret.json")
+
+def get_secret():
+    try:
+        with open(PANEL_SECRET_FILE, encoding="utf-8") as f:
+            s = json.load(f).get("secret")
+            if s:
+                return s
+    except Exception:
+        pass
+    import secrets as _secrets
+    s = _secrets.token_hex(8)
+    os.makedirs(STATE_DIR, exist_ok=True)
+    save("secret", {"secret": s})
+    return s
+
+
+NGINX_404 = b"<html><head><title>404 Not Found</title></head><body><center><h1>404 Not Found</h1></center><hr><center>nginx</center></body></html>"
+
+
 LOCK = threading.RLock()
 _warn_cache = {}  # 内存限频（warnOnce）
 
@@ -669,10 +689,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urllib_parse.urlparse(self.path)
-        if u.path == "/" or u.path == "/index.html":
+        sec = get_secret()
+        base = "/" + sec
+        # 混淆路径：/SECRET -> 301 /SECRET/；/SECRET/ -> 面板；/SECRET/api/* -> 面板API；其余一律 404（仿 nginx）
+        if u.path == base:
+            self.send_response(301)
+            self.send_header("Location", base + "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if u.path == base + "/":
             self._send(200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}, _PAGE.encode())
             return
-        if u.path == "/api/status":
+        if u.path == base + "/api/status":
             with LOCK:
                 data = {
                     "token": {k: v for k, v in load("token", {}).items() if k != "token"},
@@ -688,12 +717,21 @@ class Handler(BaseHTTPRequestHandler):
             st, hd, bd = jresp(data)
             self._send(st, hd, bd)
             return
-        st, hd, bd = jresp({"error": "not found"}, 404)
-        self._send(st, hd, bd)
+        self._send(404, {"Content-Type": "text/html"}, NGINX_404)
 
     def do_POST(self):
         u = urllib_parse.urlparse(self.path)
-        route = u.path
+        sec = get_secret()
+        base = "/" + sec
+        # 上报接口：原路径但必须带中继密钥头；面板 API：混淆路径下
+        if u.path == "/api/report-token":
+            if self.headers.get("X-Relay-Key") != sec:
+                self._send(404, {"Content-Type": "text/html"}, NGINX_404)
+                return
+        elif not u.path.startswith(base + "/api/"):
+            self._send(404, {"Content-Type": "text/html"}, NGINX_404)
+            return
+        route = u.path[len(base):] if u.path.startswith(base) else u.path
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length).decode()) if length else {}

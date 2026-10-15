@@ -9,7 +9,7 @@ export default {
       try {
         const body = await request.text();
         const r = await fetch("http://72.18.82.231:8787/api/report-token", {
-          method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body,
+          method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8", "X-Relay-Key": "8a51b123acdb3e6b" }, body,
         });
         return new Response(await r.text(), { status: r.status, headers: cors });
       } catch (e) {
