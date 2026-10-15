@@ -47,6 +47,14 @@ async function save(env, key, value) {
   await store.put(env, key, JSON.stringify(value));
 }
 
+// 内容无变化则跳过 KV 写（rawOld 为该 key 此前的原始字符串）
+async function saveIfChanged(env, key, value, rawOld) {
+  const rawNew = JSON.stringify(value);
+  if (rawNew === rawOld) return false;
+  await store.put(env, key, rawNew);
+  return true;
+}
+
 async function addLog(env, msg, level = "info") {
   const log = await load(env, "log", []);
   log.unshift({ t: new Date().toISOString(), msg, level });
@@ -202,7 +210,13 @@ async function trackActivity(env, home) {
     }
   }
   st.active = !!st.lastActiveAt && (now - st.lastActiveAt < ACTIVITY_TIMEOUT_MS);
-  await save(env, "activity", st);
+  // KV 写节流：指纹变化 / 活跃状态翻转 / 首次基线 才写，否则跳过
+  const noWrite = (prev === st.fingerprint) && (st.lastFp === st.fingerprint) && (st.lastActive === st.active);
+  if (!noWrite) {
+    st.lastFp = st.fingerprint;
+    st.lastActive = st.active;
+    await save(env, "activity", st);
+  }
   return st.active;
 }
 
@@ -220,27 +234,35 @@ async function refreshSnapshot(env, force = false) {
     if (!force && Date.now() - (meta.at || 0) < 60_000) return;
     await withSession(env, async (token) => {
       const home = await api("GET", "/api/v1/home", { token });
-      await writeSnapshot(env, token, home);
+      await writeSnapshot(env, token, home, true);
     });
     await save(env, "snapMeta", { at: Date.now() });
   } catch (e) { /* 刷新失败不影响主流程 */ }
 }
 
 // 快照：账号 + 货币 + 武将容量（tavern 接口）
-async function writeSnapshot(env, token, home) {
+async function writeSnapshot(env, token, home, force = false) {
   let heroCapacity = null;
   try {
     const t = await api("GET", "/api/v1/tavern", { token });
     heroCapacity = { capacity: t.heroCapacity, owned: t.ownedHeroCount, remaining: t.remainingHeroCapacity };
   } catch (e) { /* 容量拉取失败不阻断 */ }
-  await save(env, "snapshot", {
+  const snap = {
     at: new Date().toISOString(),
     player: { displayName: home.player.displayName, level: home.player.level,
               combatPower: home.player.combatPower, provisionsCapacity: home.player.provisionsCapacity },
     currencies: home.economy.currencies,
     mining: home.mining,
     heroCapacity,
-  });
+  };
+  // KV 写节流：距上次持久化 <5 分钟则只更新内存（跨实例最坏多写，可接受）
+  const g = globalThis;
+  if (!force && g.__lastSnapWrite && Date.now() - g.__lastSnapWrite < 5 * 60_000) {
+    mem.set("snapshot", JSON.stringify(snap));
+    return;
+  }
+  g.__lastSnapWrite = Date.now();
+  await save(env, "snapshot", snap);
 }
 
 async function jobHourly(env) {
@@ -315,8 +337,10 @@ async function jobPurpleScan(env) {
         .map(e => ({ ...parseAppearance(e.content || ""), at: e.startsAt }))
         .filter(x => x.owner);
 
-      const pcache = await load(env, "playerCache", {});
-      const heroes = await load(env, "purpleHeroes", {});
+      const rawPcache = await store.get(env, "playerCache");
+      const rawHeroes = await store.get(env, "purpleHeroes");
+      const pcache = rawPcache ? JSON.parse(rawPcache) : {};
+      const heroes = rawHeroes ? JSON.parse(rawHeroes) : {};
 
       for (const a of appearances) {
         try {
@@ -366,8 +390,8 @@ async function jobPurpleScan(env) {
         } catch (e) { /* 忽略 */ }
       }
 
-      await save(env, "playerCache", pcache);
-      await save(env, "purpleHeroes", heroes);
+      await saveIfChanged(env, "playerCache", pcache, rawPcache);
+      await saveIfChanged(env, "purpleHeroes", heroes, rawHeroes);
     });
   } catch (e) {
     if (e.code !== "NO_TOKEN") await addLog(env, `紫将扫描失败: ${e.code || e.message}`, "error");
@@ -681,7 +705,7 @@ async function handleApi(request, env, ctx) {
     // 立即验证并生成账号快照（面板马上能看到账号信息）
     try {
       const home = await api("GET", "/api/v1/home", { token: body.token });
-      await writeSnapshot(env, body.token, home);
+      await writeSnapshot(env, body.token, home, true);
       await addLog(env, `accessToken 已上报 ✓ ${home.player.displayName} Lv${home.player.level}（书签）`, "success");
     } catch (e) {
       if (e.code === "SESSION_EXPIRED" || e.code === "SESSION_REPLACED" || e.status === 401) {
