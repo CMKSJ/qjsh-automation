@@ -376,6 +376,7 @@ async function jobPurpleScan(env) {
 
       // 存活复核
       for (const [key, h] of Object.entries(heroes)) {
+        if (h.status === "GONE") { delete heroes[key]; continue; }
         if (h.status !== "ALIVE") continue;
         if (found.some(f => f.includes(h.hero) && f.includes(h.owner))) continue;
         try {
