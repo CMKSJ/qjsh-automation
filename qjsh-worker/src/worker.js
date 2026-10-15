@@ -16,7 +16,7 @@
 const API = "https://service.qjsh.top";
 const TZ_OFFSET_MS = 8 * 3600 * 1000; // 北京时间
 
-const PURPLE_PLUS = ["PURPLE", "ORANGE"];
+const PURPLE_PLUS = ["PURPLE", "ORANGE"];  // 紫将+橙将
 const EXCHANGE_TIERS = [8, 5, 1];       // 凑 12 银票的贪心档位
 const DAILY_MINING = 10;
 const LOG_MAX = 300;
@@ -543,10 +543,12 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 .cd{font-variant-numeric:tabular-nums;color:var(--warn)}
 .muted{color:var(--dim);font-size:12px}
 .tag{font-size:11px;color:var(--dim)}
+#toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#2a3550;border:1px solid var(--acc);color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;z-index:99;display:none;max-width:90%;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 #tokbanner{border-color:var(--warn)}
 #tokbanner .code{background:#0c111c;border:1px dashed var(--line);border-radius:8px;padding:8px;margin-top:8px;font-size:11px;word-break:break-all;font-family:monospace;max-height:90px;overflow:auto}
 #tokbanner ol{margin:6px 0 0 18px;font-size:12.5px}
 </style></head><body>
+<div id="toast"></div>
 <h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span></h1>
 <div class="card" id="tokbanner" hidden>
   <h2>尚未上报 accessToken</h2>
@@ -574,9 +576,10 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 const KEY='';
 const ORIGIN=location.origin;
 const $=id=>document.getElementById(id);
+function toast(t,ok){var e=$('toast');e.textContent=t;e.style.display='block';e.style.borderColor=ok===false?'var(--err)':'var(--acc)';clearTimeout(window.__tt);window.__tt=setTimeout(function(){e.style.display='none'},4000)}
 const BM='javascript:(function(){var W=\\''+ORIGIN+'\\';function arm(){window.__qjsh=1;var F=window.fetch,X=XMLHttpRequest.prototype.open,S=XMLHttpRequest.prototype.setRequestHeader;function ok(t){try{navigator.sendBeacon(W+\\'/api/report-token\\',JSON.stringify({token:t}))}catch(e){}window.fetch=F;XMLHttpRequest.prototype.setRequestHeader=S;XMLHttpRequest.prototype.open=X;window.__qjsh=2}window.fetch=function(i,o){try{var u=\\'\\'+(i&&i.url||i);var h=(o&&o.headers)||(i&&i.headers),a=h&&(h.Authorization||(h.get&&h.get(\\'Authorization\\')));if(a&&u.indexOf(\\'/auth/\\')<0)ok(String(a).replace(\\'Bearer \\',\\'\\'))}catch(e){}return F.apply(this,arguments)};XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return X.apply(this,arguments)};XMLHttpRequest.prototype.setRequestHeader=function(k,v){try{if(String(k).toLowerCase()==\\'authorization\\'&&v&&(\\'\\'+this.__u).indexOf(\\'/auth/\\')<0)ok(String(v).replace(\\'Bearer \\',\\'\\'))}catch(e){}return S.apply(this,arguments)}}if(window.__qjsh===1)return alert(\\'监听已开启，请在游戏里点任意操作\\');arm();alert(\\'监听已开启：在游戏里点击任意操作（或等几秒），token 会自动上报\\')})()';
 async function req(path,opts={}){const r=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}});return r.json()}
-function copyBM(){var t=$('bmcode').textContent||BM;function ok(){alert('已复制！去浏览器「添加书签」，把网址替换为这段代码（名称随意）')}function fb(){var ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,t.length);var s=false;try{s=document.execCommand('copy')}catch(e){}document.body.removeChild(ta);s?ok():prompt('复制失败，请长按下面文本框手动复制:',t)}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,fb)}else{fb()}}
+function copyBM(){var t=$('bmcode').textContent||BM;function ok(){toast('已复制！去浏览器「添加书签」，把网址替换为这段代码')}function fb(){var ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,t.length);var s=false;try{s=document.execCommand('copy')}catch(e){}document.body.removeChild(ta);s?ok():prompt('复制失败，请长按下面文本框手动复制:',t)}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,fb)}else{fb()}}
 const CUR={COPPER:'铜钱',YUANBAO:'元宝',SILVER_TICKET:'银票',PROVISIONS:'粮草',BATTLE_ACHIEVEMENT:'战功'};
 function fmt(n){return (+n).toLocaleString('zh-CN')}
 function fmtBJ(iso){var d=new Date(iso);if(isNaN(d))return '';d=new Date(d.getTime()+8*3600e3);var p=x=>String(x).padStart(2,'0');return p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
@@ -630,9 +633,9 @@ async function render(){
 }
 async function capFull(){const c=window.__cap;return c&&c.remaining<=0}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
-async function res(k){if(capFull()){return alert('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置，否则到期也抢不了')}await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
-async function grab(k){if(capFull()){return alert('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置')}const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)alert(r.msg||'抢购失败');render()}
-async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\\n'):(''+res);if(r.found&&r.found.length)txt+='\\n'+r.found.join('\\n');alert(txt||'已执行');setTimeout(render,800)}
+async function res(k){if(capFull()){return toast('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置，否则到期也抢不了',false)}await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
+async function grab(k){if(capFull()){return toast('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置',false)}const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
+async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\\n'):(''+res);if(r.found&&r.found.length)txt+='\\n'+r.found.join('\\n');toast(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
 </script></body></html>`;
 
