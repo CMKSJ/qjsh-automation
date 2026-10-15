@@ -131,6 +131,18 @@ assert(!JSON.stringify(st5).includes("RT-good-0123456789abcdef012345"), "status 
 const html = await (await worker.fetch(new Request("https://x/"), env)).text();
 assert(html.includes("书签") && html.includes("report-token"), "面板含书签指引");
 
+// ==== T5b: 暂停自动化 ====
+console.log("T5b: 暂停开关");
+await worker.fetch(new Request("https://x/api/report-token", { method: "POST", body: JSON.stringify({ token: "RT-good-0123456789abcdef012345" }) }), env);
+await new Promise(r => setTimeout(r, 100));
+let pr = await (await worker.fetch(new Request("https://x/api/pause", { method: "POST", headers: { "X-Page-Key": "test123", "Content-Type": "application/json" }, body: JSON.stringify({ paused: true }) }), env)).json();
+assert(pr.paused === true, "暂停生效");
+await tick(Date.UTC(2026, 9, 15, 17, 10, 0));
+const stp = await (await worker.fetch(new Request("https://x/api/status", { headers: { "X-Page-Key": "test123" } }), env)).json();
+assert(stp.paused === true, "status 返回 paused");
+pr = await (await worker.fetch(new Request("https://x/api/pause", { method: "POST", headers: { "X-Page-Key": "test123", "Content-Type": "application/json" }, body: JSON.stringify({ paused: false }) }), env)).json();
+assert(pr.paused === false, "恢复生效");
+
 // ==== T6: token 失效自动清理提示 ====
 console.log("T6: SESSION_EXPIRED 清理");
 // 用坏 token 覆盖

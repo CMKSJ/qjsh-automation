@@ -163,6 +163,19 @@ async function mineOnce(env) {
   }
 }
 
+// 刷新快照（60 秒节流；force=true 跳过节流）
+async function refreshSnapshot(env, force = false) {
+  try {
+    const meta = await load(env, "snapMeta", {});
+    if (!force && Date.now() - (meta.at || 0) < 60_000) return;
+    await withSession(env, async (token) => {
+      const home = await api("GET", "/api/v1/home", { token });
+      await writeSnapshot(env, token, home);
+    });
+    await save(env, "snapMeta", { at: Date.now() });
+  } catch (e) { /* 刷新失败不影响主流程 */ }
+}
+
 // 快照：账号 + 货币 + 武将容量（tavern 接口）
 async function writeSnapshot(env, token, home) {
   let heroCapacity = null;
@@ -247,10 +260,6 @@ async function jobPurpleScan(env) {
   const found = [];
   try {
     await withSession(env, async (token) => {
-      try {
-        const home0 = await api("GET", "/api/v1/home", { token });
-        await writeSnapshot(env, token, home0);
-      } catch (e) { /* 快照失败不阻断扫描 */ }
       const ann = await api("GET", "/api/v1/home-announcements", { token });
       const appearances = (ann.entries || [])
         .map(e => ({ ...parseAppearance(e.content || ""), at: e.startsAt }))
@@ -397,6 +406,14 @@ async function scheduled(event, env, ctx) {
     await warnOnce(env, "noToken", "尚无 accessToken：请在手机游戏页面点一下书签上报（见面板顶部说明）");
     return;
   }
+  // 暂停中：跳过一切写操作（签到/开采/整点/抢购），只保留只读扫描
+  if ((await load(env, "paused", false)) === true) {
+    if (minute % 5 === 2) {
+      const found0 = await jobPurpleScan(env);
+      for (const f of found0) await addLog(env, `发现紫将(暂停中仅记录): ${f}`, "success");
+    }
+    return;
+  }
 
   try {
     if (hour === 0 && minute === 1 && !daily.signin) {
@@ -495,6 +512,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
     <button class="ghost" onclick="job('hourly')">立即整点任务</button>
     <button class="ghost" onclick="job('mine')">开采一次</button>
     <button class="ghost" onclick="job('scan')">扫描紫将</button>
+    <button id="pauser" class="ghost" onclick="togglePause()">暂停自动化</button>
   </div></div>
 <div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询 · 酒馆30分钟保护期</span> <span class="tag" id="herocap"></span></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
@@ -527,6 +545,10 @@ async function render(){
     const provNow=provC?provC.balance:'-';
     const provCap=s.snapshot?.player?.provisionsCapacity??'-';
     window.__cap=s.snapshot?.heroCapacity||null;
+    window.__paused=!!s.paused;
+    $('pauser').textContent=window.__paused?'▶ 恢复自动化':'暂停自动化';
+    $('pauser').style.borderColor=window.__paused?'var(--err)':'var(--line)';
+    $('pauser').style.color=window.__paused?'var(--err)':'';
     $('herocap').textContent=window.__cap?('武将 '+window.__cap.owned+'/'+window.__cap.capacity+(window.__cap.remaining<=0?' (满)':'')):'';
     $('daily').innerHTML=[
       ['签到',d.signin?'✓ 已完成':'待 00:01'],
@@ -552,6 +574,7 @@ async function render(){
   }catch(e){if(e!==0)console.error(e)}
 }
 async function capFull(){const c=window.__cap;return c&&c.remaining<=0}
+async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
 async function res(k){if(capFull()){return alert('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置，否则到期也抢不了')}await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
 async function grab(k){if(capFull()){return alert('武将位已满（'+window.__cap.owned+'/'+window.__cap.capacity+'），请先解雇或提取武魂腾位置')}const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)alert(r.msg||'抢购失败');render()}
 async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\\n'):(''+res);if(r.found&&r.found.length)txt+='\\n'+r.found.join('\\n');alert(txt||'已执行');setTimeout(render,800)}
@@ -563,7 +586,7 @@ const json = (obj, status = 200) =>
     status, headers: { "Content-Type": "application/json; charset=utf-8" },
   });
 
-async function handleApi(request, env) {
+async function handleApi(request, env, ctx) {
   const url = new URL(request.url);
   const route = url.pathname.replace(/^\/api\//, "");
 
@@ -593,13 +616,16 @@ async function handleApi(request, env) {
   }
 
   if (route === "status" && request.method === "GET") {
-    const [token, daily, heroes, log, snapshot] = await Promise.all([
+    // 面板访问即触发快照刷新（60 秒节流），不阻塞本次响应
+    if (ctx) ctx.waitUntil(refreshSnapshot(env));
+    const [token, daily, heroes, log, snapshot, paused] = await Promise.all([
       load(env, "token", {}), load(env, "daily", {}),
       load(env, "purpleHeroes", {}), load(env, "log", []), load(env, "snapshot", {}),
+      load(env, "paused", false),
     ]);
     const { token: tok, ...tokenSafe } = token;  // 不向页面暴露凭据
     tokenSafe.hasToken = !!tok;
-    return json({ token: tokenSafe, daily, heroes, log, snapshot });
+    return json({ token: tokenSafe, daily, heroes, log, snapshot, paused });
   }
   if (route === "reserve" && request.method === "POST") {
     const { key } = await request.json();
@@ -616,6 +642,14 @@ async function handleApi(request, env) {
     const r = await grabHero(env, key, true);
     return json(r);
   }
+  if (route === "pause" && request.method === "POST") {
+    const { paused } = await request.json();
+    const val = !!paused;
+    await save(env, "paused", val);
+    await addLog(env, val ? "自动化已暂停（手动操作不受影响）" : "自动化已恢复", val ? "warn" : "success");
+    if (val) await refreshSnapshot(env, true);
+    return json({ ok: true, paused: val });
+  }
   if (route === "job" && request.method === "POST") {
     const { name } = await request.json();
     if (name === "signin") { const r = await jobSignIn(env); const d = await load(env, "daily", {}); d.signin = true; d.date = bj(Date.now()).date; await save(env, "daily", d); await addLog(env, `手动签到: ${r.join("; ")}`); return json({ ok: true, result: r }); }
@@ -628,9 +662,9 @@ async function handleApi(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith("/api/")) return handleApi(request, env);
+    if (url.pathname.startsWith("/api/")) return handleApi(request, env, ctx);
     return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   },
   async scheduled(event, env, ctx) {
