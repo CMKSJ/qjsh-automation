@@ -768,8 +768,10 @@ async function render(){
     $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>成本</th><th>保护期</th><th>状态</th><th></th></tr>'+
       hs.map(h=>{const k=h.key.replace(/"/g,'&quot;');
         const st=h.status==='GRABBED'?'<span class="st-GRABBED">购得</span>':h.status==='GONE'?'<span class="st-GONE">售罄</span>':h.reserved?'<span class="st-ALIVE">已预约</span>':'<span class="st-ALIVE">在售</span>';
+        const expired=new Date(h.protectionEndsAt)<=new Date();
         const btn=h.status!=='ALIVE'?'':h.reserved
           ?'<button class="ghost" onclick="res(\\''+k+'\\')">取消</button> <button class="warn" onclick="grab(\\''+k+'\\')">立即抢</button>'
+          :expired?'<button class="warn" onclick="grab(\\''+k+'\\')">抢购</button>'
           :'<button onclick="res(\\''+k+'\\')">预约抢购</button>';
         const cdtxt=h.status==='ALIVE'?'<span class="cd">'+cd(h.protectionEndsAt)+'</span>':'—';
         return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':'')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td class="row">'+btn+'</td></tr>'}).join('')+'</table>')
