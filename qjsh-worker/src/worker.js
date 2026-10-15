@@ -652,9 +652,9 @@ async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify
 render();setInterval(render,10000);
 </script></body></html>`;
 
-const json = (obj, status = 200) =>
+const json = (obj, status = 200, extra = {}) =>
   new Response(JSON.stringify(obj), {
-    status, headers: { "Content-Type": "application/json; charset=utf-8" },
+    status, headers: { "Content-Type": "application/json; charset=utf-8", ...extra },
   });
 
 async function handleApi(request, env, ctx) {
@@ -679,11 +679,11 @@ async function handleApi(request, env, ctx) {
       if (e.code === "SESSION_EXPIRED" || e.code === "SESSION_REPLACED" || e.status === 401) {
         await save(env, "token", {});
         await addLog(env, "上报的 token 无效——请确认游戏已进入（过了登录页）再点书签", "error");
-        return json({ ok: false, error: "invalid token" }, 400);
+        return json({ ok: false, error: "invalid token" }, 400, { "Access-Control-Allow-Origin": "*" });
       }
       await addLog(env, "accessToken 已上报 ✓（验证请求延迟，不影响使用）（书签）", "success");
     }
-    return json({ ok: true });
+    return json({ ok: true }, 200, { "Access-Control-Allow-Origin": "*" });
   }
 
   if (route === "status" && request.method === "GET") {
