@@ -426,14 +426,22 @@ async function grabHero(env, key, manual = false) {
 
   try {
     await withSession(env, async (token) => {
-      const t = await api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token });
-      const cand = (t.candidates || []).find(c => c.name === h.hero && PURPLE_PLUS.includes(c.quality));
-      if (!cand) throw Object.assign(new Error("武将已不在卡池"), { code: "GONE" });
-      h.candidateId = cand.candidateId;
-      h.candidateVersion = cand.version;
-      await api("POST", `/api/v1/friend-cities/${h.playerId}/tavern/recruitments`, {
-        token, body: { operationId: opId(), candidateId: h.candidateId, expectedCandidateVersion: h.candidateVersion },
-      });
+      // 快路径：直接用已知 candidateId/version 出手（省 1-2 秒前置查询，抢的就是毫秒窗）
+      try {
+        await api("POST", `/api/v1/friend-cities/${h.playerId}/tavern/recruitments`, {
+          token, body: { operationId: opId(), candidateId: h.candidateId, expectedCandidateVersion: h.candidateVersion },
+        });
+      } catch (e) {
+        // 回退：刷新卡池再试一次（版本过期/卡池刷新的情况）
+        const t = await api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token });
+        const cand = (t.candidates || []).find(c => c.name === h.hero && c.quality === h.quality);
+        if (!cand) throw Object.assign(new Error("武将已不在卡池"), { code: "GONE" });
+        h.candidateId = cand.candidateId;
+        h.candidateVersion = cand.version;
+        await api("POST", `/api/v1/friend-cities/${h.playerId}/tavern/recruitments`, {
+          token, body: { operationId: opId(), candidateId: h.candidateId, expectedCandidateVersion: h.candidateVersion },
+        });
+      }
       h.status = "GRABBED";
       h.grabbedAt = new Date().toISOString();
       await markSelfAction(env);
@@ -461,7 +469,7 @@ async function checkReservations(env) {
     const dt = Date.parse(h.protectionEndsAt) - now;
     if (dt <= 0) {
       await grabHero(env, key);
-    } else if (dt <= 50_000) {
+    } else if (dt <= 90_000) {
       // 秒级蹲点：睡到到期前 150ms，提前量 + 连发（浏览器端亦有精确定时器双保险）
       const locks = globalThis.__grabLocks ?? (globalThis.__grabLocks = new Set());
       if (locks.has(key)) continue;
