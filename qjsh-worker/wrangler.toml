@@ -1,4 +1,4 @@
-name = "qjsh-bot"
+name = "qjsh-automation"
 main = "src/worker.js"
 compatibility_date = "2026-01-01"
 
@@ -10,11 +10,15 @@ compatibility_date = "2026-01-01"
 [triggers]
 crons = ["* * * * *"]
 
-[[kv_namespaces]]
-binding = "QJSH_KV"
-id = "替换为你的 KV namespace ID"   # wrangler kv namespace create QJSH_KV
+# 凭据与访问控制（不要写进本文件）：
+#   npx wrangler secret put PAGE_KEY   # 面板访问密码 + 书签上报密钥
+#
+# accessToken 由书签在游戏页面捕获后上报（POST /api/report-token），
+# Worker 不做账密登录，不会顶掉手机会话。
 
-# 凭据用 secrets 配置（不要写进本文件）：
-#   npx wrangler secret put PHONE      # 游戏手机号
-#   npx wrangler secret put PASSWORD   # 游戏密码
-#   npx wrangler secret put PAGE_KEY   # 面板访问密码（自定）
+# ---- 可选：KV 持久化（不加也能跑，用内存降级；实例重启需重新点书签上报 token） ----
+# 1) wrangler kv namespace create QJSH_KV
+# 2) 取消下面注释并填入返回的 id：
+# [[kv_namespaces]]
+# binding = "QJSH_KV"
+# id = "<namespace-id>"

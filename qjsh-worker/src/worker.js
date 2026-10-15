@@ -1,33 +1,100 @@
-// Q将水浒 自动化 Worker
-// 调度（北京时间 = UTC+8，由每分钟 tick 内部判断）：
-//   00:01  签到（7日 + 月）并开始矿山开采计划（~30s 间隔，共 10 次，失败下一 tick 续采）
-//   整点    兑换 12 银票（粮草不足则全部）+ 征收市场 + 收取驻守城池铜钱
-//   每 5 分钟 轮询公告（TAVERN_APPEARANCE 30 分钟时效，5 分钟轮询零遗漏），跟踪存活紫将
-//   每 1 分钟 检查预约抢购队列，保护期结束立刻抢；网页在线时浏览器秒级触发双保险
+// Q将水浒 自动化 Worker（accessToken 模式）
 //
-// 接口格式均逆向自 Web 客户端 /releases/20261015-001/，见 README.md
+// 认证：不做账密登录（避免顶掉手机会话）。accessToken 由「书签」在游戏页面里
+//       捕获并上报到 POST /api/report-token，之后所有任务复用该 token。
+//       手机重新进入游戏会换新 token（旧的失效），面板会提示重新点一次书签。
+//
+// 调度（北京时间 = UTC+8，由每分钟 tick 内部判断）：
+//   00:01  签到（7日 + 月）并启动矿山开采计划（~30s 间隔共 10 次，失败下一 tick 续采）
+//   整点    兑换 12 银票（粮草不足则全部）+ 征收市场 + 收取驻守城池铜钱
+//   每 5 分钟 轮询公告（TAVERN_APPEARANCE 30 分钟时效），跟踪存活紫将
+//   每 1 分钟 检查预约抢购，保护期结束立刻抢；网页在线时浏览器 10s 轮询双保险
+//
+// 存储：绑定 QJSH_KV 则持久化（wrangler.toml 配置）；未绑定时用内存降级
+//      （实例重启后丢失 token/监控列表，需重新点书签上报）。
 
 const API = "https://service.qjsh.top";
-const RELEASE_ID = "dy-recharge-prod-water-v1-0.1.0";
-const CLIENT_VERSION = "0.1.0";
-const DEVICE = "cf-worker-qjsh-01";
 const TZ_OFFSET_MS = 8 * 3600 * 1000; // 北京时间
 
 const PURPLE_PLUS = ["PURPLE", "ORANGE"];
 const EXCHANGE_TIERS = [8, 5, 1];       // 凑 12 银票的贪心档位
 const DAILY_MINING = 10;
 const LOG_MAX = 300;
+const NO_TOKEN_WARN_MS = 3600_000;      // 无 token 提示限频 1 小时
 
-// ---------- 工具 ----------
+// ---------- 存储：KV 优先，内存降级 ----------
 
-const opId = () => crypto.randomUUID();
+const mem = globalThis.__QJSH_MEM__ ?? (globalThis.__QJSH_MEM__ = new Map());
 
-function bj(dateMs) {
-  const d = new Date(dateMs + TZ_OFFSET_MS);
-  return {
-    date: d.toISOString().slice(0, 10),   // 北京日期 YYYY-MM-DD
-    hour: d.getUTCHours(), minute: d.getUTCMinutes(),
-  };
+const store = {
+  async get(env, key) {
+    if (env.QJSH_KV) { const v = await env.QJSH_KV.get(key); if (v !== null) return v; return mem.has(key) ? mem.get(key) : null; }
+    return mem.get(key) ?? null;
+  },
+  async put(env, key, value) {
+    mem.set(key, value);
+    if (env.QJSH_KV) await env.QJSH_KV.put(key, value);
+  },
+};
+
+async function load(env, key, fallback) {
+  const v = await store.get(env, key);
+  if (v == null) return fallback;
+  try { return JSON.parse(v); } catch { return fallback; }
+}
+
+async function save(env, key, value) {
+  await store.put(env, key, JSON.stringify(value));
+}
+
+async function addLog(env, msg, level = "info") {
+  const log = await load(env, "log", []);
+  log.unshift({ t: new Date().toISOString(), msg, level });
+  if (log.length > LOG_MAX) log.length = LOG_MAX;
+  await save(env, "log", log);
+}
+
+// ---------- accessToken 管理 ----------
+
+async function readToken(env) {
+  const st = await load(env, "token", {});
+  if (!st.token || Date.now() > (st.expiresAt || 0)) return null;
+  return st.token;
+}
+
+async function reportToken(env, token) {
+  // accessToken 有效期 7 天（enter 响应 expiresAt）；这里保守按 6 天
+  await save(env, "token", {
+    token, reportedAt: new Date().toISOString(),
+    expiresAt: Date.now() + 6 * 86400_000,
+  });
+}
+
+// 无 token / token 失效的提示（限频，避免每分钟刷日志）
+async function warnOnce(env, cacheKey, msg) {
+  const flags = await load(env, "warnFlags", {});
+  if (flags[cacheKey] && Date.now() - flags[cacheKey] < NO_TOKEN_WARN_MS) return;
+  flags[cacheKey] = Date.now();
+  await save(env, "warnFlags", flags);
+  await addLog(env, msg, "warn");
+}
+
+// 带失效处理的调用：fn(token) → SESSION_EXPIRED 时清 token 并提示重新上报
+async function withSession(env, fn) {
+  const token = await readToken(env);
+  if (!token) {
+    await warnOnce(env, "noToken", "尚无 accessToken：请在手机游戏页面点一下书签上报（见面板顶部说明）");
+    throw Object.assign(new Error("NO_TOKEN"), { code: "NO_TOKEN" });
+  }
+  try {
+    return await fn(token);
+  } catch (e) {
+    if (e.code === "SESSION_EXPIRED" || e.status === 401) {
+      await save(env, "token", {});  // 清除失效 token
+      await addLog(env, "accessToken 已失效（手机端重新进过游戏？）——请重新点书签上报", "warn");
+    }
+    throw e;
+  }
 }
 
 async function api(method, path, { token, body } = {}) {
@@ -49,111 +116,53 @@ async function api(method, path, { token, body } = {}) {
   return payload.data;
 }
 
-// ---------- 状态存取（KV） ----------
-
-async function load(env, key, fallback) {
-  const v = await env.QJSH_KV.get(key);
-  if (!v) return fallback;
-  try { return JSON.parse(v); } catch { return fallback; }
-}
-
-async function save(env, key, value) {
-  await env.QJSH_KV.put(key, JSON.stringify(value));
-}
-
-async function addLog(env, msg, level = "info") {
-  const log = await load(env, "log", []);
-  log.unshift({ t: new Date().toISOString(), msg, level });
-  if (log.length > LOG_MAX) log.length = LOG_MAX;
-  await save(env, "log", log);
-}
-
-// 登录（两级 token），KV 缓存；SESSION_EXPIRED 时重登一次
-async function getToken(env, force = false) {
-  const st = await load(env, "state", {});
-  if (!force && st.token && Date.now() < (st.tokenExp || 0)) return st.token;
-  const acct = await api("POST", "/api/v1/auth/password/login", {
-    body: {
-      releaseId: RELEASE_ID, clientVersion: CLIENT_VERSION, deviceFingerprint: DEVICE,
-      phoneNumber: env.PHONE, password: env.PASSWORD,
-    },
-  });
-  const servers = await api("GET", "/api/v1/auth/servers", { token: acct.accountToken });
-  const session = await api("POST", "/api/v1/auth/servers/enter", {
-    token: acct.accountToken, body: { serverId: servers.defaultServerId },
-  });
-  const exp = Date.parse(session.expiresAt) - 10 * 60 * 1000; // 提前 10 分钟视为过期
-  await save(env, "state", {
-    token: session.accessToken, tokenExp: exp,
-    playerId: session.playerId, serverId: session.serverId,
-    lastLoginAt: new Date().toISOString(),
-  });
-  return session.accessToken;
-}
-
-// 带会话失效重试的调用
-async function withSession(env, fn) {
-  let token = await getToken(env);
-  try { return await fn(token); }
-  catch (e) {
-    if (e.code === "SESSION_EXPIRED" || e.status === 401) {
-      token = await getToken(env, true);
-      return await fn(token);
-    }
-    throw e;
-  }
-}
-
 // ---------- 每日任务 ----------
 
 async function jobSignIn(env) {
   const results = [];
-  // 7 日签到
   try {
     await withSession(env, async (token) => {
       const s = await api("GET", "/api/v1/login-rewards", { token });
       const day = s.days?.find(d => d.status === "AVAILABLE" || d.status === "CLAIMABLE");
-      if (!day) { results.push("7日签到: 今日已签"); return; }
-      const r = await api("POST", "/api/v1/login-rewards/claims", {
-        token, body: {
-          operationId: opId(), day: day.day, cycleId: s.cycleId, expectedVersion: s.version,
-        },
-      });
-      results.push(`7日签到: 第${day.day}天 ✓`);
+      if (!day) { results.push("7日签到: 今日已签"); }
+      else {
+        await api("POST", "/api/v1/login-rewards/claims", {
+          token, body: { operationId: opId(), day: day.day, cycleId: s.cycleId, expectedVersion: s.version },
+        });
+        results.push(`7日签到: 第${day.day}天 ✓`);
+      }
     });
-  } catch (e) { results.push(`7日签到失败: ${e.message}`); }
-  // 月签到（ALL = 领取全部可领）
+  } catch (e) { results.push(`7日签到失败: ${e.code || e.message}`); }
   try {
     await withSession(env, async (token) => {
       const s = await api("GET", "/api/v1/monthly-login-rewards", { token });
       const claimable = (s.days || []).some(d => d.status === "AVAILABLE" || d.status === "CLAIMABLE");
       if (!claimable) { results.push("月签到: 今日已签"); return; }
       await api("POST", "/api/v1/monthly-login-rewards/claims", {
-        token, body: {
-          operationId: opId(), monthId: s.monthId, expectedVersion: s.version, mode: "ALL", day: null,
-        },
+        token, body: { operationId: opId(), monthId: s.monthId, expectedVersion: s.version, mode: "ALL", day: null },
       });
       results.push("月签到: ✓");
     });
-  } catch (e) { results.push(`月签到失败: ${e.message}`); }
+  } catch (e) { results.push(`月签到失败: ${e.code || e.message}`); }
   return results;
 }
 
-// 开采 1 次；返回 "OK" | "DONE"(今日满) | 错误信息
+const opId = () => crypto.randomUUID();
+
+// 开采 1 次；返回 "OK" | "DONE"(今日满) | "COOLDOWN" | 抛错
 async function mineOnce(env) {
-  return withSession(env, async (token) => {
-    const r = await api("POST", "/api/v1/home/mining-collections", {
-      token, body: { operationId: opId() },
+  try {
+    return await withSession(env, async (token) => {
+      await api("POST", "/api/v1/home/mining-collections", { token, body: { operationId: opId() } });
+      return "OK";
     });
-    return "OK";
-  }).catch(async (e) => {
+  } catch (e) {
     if (e.code === "HOME_MINING_DAILY_LIMIT") return "DONE";
     if (e.code === "HOME_MINING_COOLDOWN") return "COOLDOWN";
     throw e;
-  });
+  }
 }
 
-// 整点任务：兑换银票 + 征收 + 收租
 async function jobHourly(env) {
   const out = [];
   try {
@@ -164,15 +173,13 @@ async function jobHourly(env) {
 
       // --- 兑换银票：贪心凑 12，不足则全部 ---
       let budget = Math.min(12, prov);
-      const plan = {}; // tier -> count
-      for (const t of EXCHANGE_TIERS) {
-        while (budget >= t) { plan[t] = (plan[t] || 0) + 1; budget -= t; }
-      }
+      const plan = {};
+      for (const t of EXCHANGE_TIERS) while (budget >= t) { plan[t] = (plan[t] || 0) + 1; budget -= t; }
       const tickets = Object.entries(plan).reduce((s, [t, n]) => s + t * n, 0);
-      const copperNeed = Object.entries(plan).reduce((s, [t, n]) => s + t * 100 * n, 0);
+      const copperNeed = tickets * 100;
       if (tickets > 0 && copper >= copperNeed) {
         for (const [t, n] of Object.entries(plan)) {
-          const r = await api("POST", "/api/v1/home/market/exchanges", {
+          await api("POST", "/api/v1/home/market/exchanges", {
             token, body: { operationId: opId(), offerId: `MARKET_EXCHANGE_${t}`, quantity: n },
           });
         }
@@ -196,12 +203,7 @@ async function jobHourly(env) {
 
       // --- 收取驻守城池租金 ---
       const occ = home.occupation;
-      if (occ?.status === "GARRISONED") {
-        const r = await api("POST", "/api/v1/home/garrison/rent-collections", {
-          token, body: { operationId: opId(), expectedVersion: occ.version },
-        });
-        out.push(`收租 +${r.occupation?.rent?.availableCopper ?? "?"} 铜`);
-      } else if (occ?.rent?.availableCopper > 0) {
+      if (occ?.status === "GARRISONED" || occ?.rent?.availableCopper > 0) {
         const r = await api("POST", "/api/v1/home/garrison/rent-collections", {
           token, body: { operationId: opId(), expectedVersion: occ.version },
         });
@@ -210,7 +212,6 @@ async function jobHourly(env) {
         out.push("收租: 未驻守或无可收");
       }
 
-      // 快照
       await save(env, "snapshot", {
         at: new Date().toISOString(),
         player: { displayName: home.player.displayName, level: home.player.level,
@@ -219,7 +220,7 @@ async function jobHourly(env) {
         mining: home.mining,
       });
     });
-  } catch (e) { out.push(`失败: ${e.message}`); }
+  } catch (e) { out.push(`失败: ${e.code || e.message}`); }
   return out;
 }
 
@@ -231,9 +232,6 @@ function parseAppearance(text) {
   return m ? { owner: m[1], star: +m[2], qualityName: m[3], hero: m[4] } : null;
 }
 
-const qualityCode = (q) => q === "紫" ? "PURPLE" : q === "橙" ? "ORANGE" : null;
-
-// 5 分钟任务：轮询公告 + 刷新存活紫将
 async function jobPurpleScan(env) {
   const found = [];
   try {
@@ -243,7 +241,6 @@ async function jobPurpleScan(env) {
         .map(e => ({ ...parseAppearance(e.content || ""), at: e.startsAt }))
         .filter(x => x.owner);
 
-      // 名字 -> playerId（带缓存）
       const pcache = await load(env, "playerCache", {});
       const heroes = await load(env, "purpleHeroes", {});
 
@@ -252,7 +249,7 @@ async function jobPurpleScan(env) {
           if (!pcache[a.owner]) {
             const s = await api("GET", `/api/v1/player-search?type=NAME&query=${encodeURIComponent(a.owner)}`, { token });
             const p = (s.players || [])[0];
-            if (!p) continue; // 找不到玩家（可能改名/下架），下次再试
+            if (!p) continue;
             pcache[a.owner] = { playerId: p.playerId, shortId: p.shortId, level: p.level };
           }
           const pid = pcache[a.owner].playerId;
@@ -260,8 +257,7 @@ async function jobPurpleScan(env) {
           if (heroes[key]?.status === "GRABBED") continue;
 
           const t = await api("GET", `/api/v1/friend-cities/${pid}/tavern`, { token });
-          const cand = (t.candidates || []).find(c =>
-            c.name === a.hero && PURPLE_PLUS.includes(c.quality));
+          const cand = (t.candidates || []).find(c => c.name === a.hero && PURPLE_PLUS.includes(c.quality));
           if (cand) {
             heroes[key] = {
               ...heroes[key],  // 保留 reserved 等字段
@@ -274,19 +270,19 @@ async function jobPurpleScan(env) {
             };
             found.push(`${a.owner}家 ${a.hero}(${cand.quality}${cand.star}星)`);
           } else if (heroes[key]?.status === "ALIVE") {
-            heroes[key].status = "GONE"; // 已被别人招走/刷新掉
+            heroes[key].status = "GONE";
           }
         } catch (e) { /* 单条失败不影响其他 */ }
       }
 
-      // 存活复核：对 ALIVE 且不在本次公告里的也重新确认（可能悄悄被抢）
+      // 存活复核
       for (const [key, h] of Object.entries(heroes)) {
         if (h.status !== "ALIVE") continue;
         if (found.some(f => f.includes(h.hero) && f.includes(h.owner))) continue;
         try {
           const t = await api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token });
           const cand = (t.candidates || []).find(c => c.candidateId === h.candidateId);
-          if (!cand) { h.status = "GONE"; }
+          if (!cand) h.status = "GONE";
           else {
             h.candidateVersion = cand.version;
             h.protectionEndsAt = t.protectionEndsAt;
@@ -295,7 +291,6 @@ async function jobPurpleScan(env) {
         } catch (e) { /* 忽略 */ }
       }
 
-      // 清理：GONE 超过 1 天的删除
       const dayAgo = Date.now() - 86400_000;
       for (const [key, h] of Object.entries(heroes)) {
         if (h.status === "GONE" && Date.parse(h.lastSeenAt) < dayAgo) delete heroes[key];
@@ -305,20 +300,18 @@ async function jobPurpleScan(env) {
       await save(env, "purpleHeroes", heroes);
     });
   } catch (e) {
-    await addLog(env, `紫将扫描失败: ${e.message}`, "error");
+    if (e.code !== "NO_TOKEN") await addLog(env, `紫将扫描失败: ${e.code || e.message}`, "error");
     return found;
   }
   return found;
 }
 
-// 抢购一个紫将
 async function grabHero(env, key, manual = false) {
   const heroes = await load(env, "purpleHeroes", {});
   const h = heroes[key];
   if (!h) return { ok: false, msg: "目标不存在" };
   if (h.status === "GRABBED") return { ok: false, msg: "已抢购成功" };
 
-  // 刷新最新 candidateId/version（卡池可能刷新过）
   try {
     await withSession(env, async (token) => {
       const t = await api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token });
@@ -326,11 +319,8 @@ async function grabHero(env, key, manual = false) {
       if (!cand) throw Object.assign(new Error("武将已不在卡池"), { code: "GONE" });
       h.candidateId = cand.candidateId;
       h.candidateVersion = cand.version;
-      const r = await api("POST", `/api/v1/friend-cities/${h.playerId}/tavern/recruitments`, {
-        token, body: {
-          operationId: opId(), candidateId: h.candidateId,
-          expectedCandidateVersion: h.candidateVersion,
-        },
+      await api("POST", `/api/v1/friend-cities/${h.playerId}/tavern/recruitments`, {
+        token, body: { operationId: opId(), candidateId: h.candidateId, expectedCandidateVersion: h.candidateVersion },
       });
       h.status = "GRABBED";
       h.grabbedAt = new Date().toISOString();
@@ -345,13 +335,11 @@ async function grabHero(env, key, manual = false) {
       await addLog(env, `抢购失败: ${h.hero} 已不在卡池`, "warn");
       return { ok: false, msg: "武将已不在卡池" };
     }
-    const retry = e.code === "PROTECTION_ACTIVE" || /保护/.test(e.message || "");
-    await addLog(env, `抢购失败(${h.hero}): ${e.message}`, retry ? "warn" : "error");
-    return { ok: false, msg: e.message, retry };
+    await addLog(env, `抢购失败(${h.hero}): ${e.code || e.message}`, "error");
+    return { ok: false, msg: e.message };
   }
 }
 
-// 每分钟检查预约到期
 async function checkReservations(env) {
   const heroes = await load(env, "purpleHeroes", {});
   const now = Date.now();
@@ -365,6 +353,14 @@ async function checkReservations(env) {
 
 // ---------- 调度 ----------
 
+function bj(dateMs) {
+  const d = new Date(dateMs + TZ_OFFSET_MS);
+  return {
+    date: d.toISOString().slice(0, 10),
+    hour: d.getUTCHours(), minute: d.getUTCMinutes(),
+  };
+}
+
 async function scheduled(event, env, ctx) {
   const { date, hour, minute } = bj(event.scheduledTime || Date.now());
   const daily = await load(env, "daily", {});
@@ -373,15 +369,20 @@ async function scheduled(event, env, ctx) {
     await save(env, "daily", daily);
   }
 
+  // 无 token 时跳过全部任务（避免每分钟空转刷日志），保留整点标记
+  const token = await readToken(env);
+  if (!token) {
+    await warnOnce(env, "noToken", "尚无 accessToken：请在手机游戏页面点一下书签上报（见面板顶部说明）");
+    return;
+  }
+
   try {
-    // --- 00:01 签到 + 开采计划启动 ---
     if (hour === 0 && minute === 1 && !daily.signin) {
       const r = await jobSignIn(env);
       await addLog(env, `签到: ${r.join("; ")}`);
       daily.signin = true; await save(env, "daily", daily);
     }
 
-    // --- 矿山开采窗口（00:01 起，采满 10 次或 00:30 止）---
     if (hour === 0 && minute >= 1 && minute <= 30 && daily.mining < DAILY_MINING) {
       const r = await mineOnce(env);
       if (r === "OK") {
@@ -392,30 +393,27 @@ async function scheduled(event, env, ctx) {
         daily.mining = DAILY_MINING; await save(env, "daily", daily);
         await addLog(env, "矿山: 次数已用完（可能在游戏内已采）");
       } else if (r === "COOLDOWN") {
-        await new Promise(res => setTimeout(res, 30_000)); // 30s 后同 tick 内重试一次
+        await new Promise(res => setTimeout(res, 30_000));
         const r2 = await mineOnce(env);
         if (r2 === "OK") { daily.mining++; await save(env, "daily", daily); }
         else if (r2 === "DONE") { daily.mining = DAILY_MINING; await save(env, "daily", daily); }
       }
     }
 
-    // --- 整点任务（每小时）---
     if (minute === 0 && !daily.hourly[hour]) {
       const r = await jobHourly(env);
       daily.hourly[hour] = true; await save(env, "daily", daily);
       await addLog(env, `[${String(hour).padStart(2, "0")}:00] ${r.join("; ")}`);
     }
 
-    // --- 紫将公告轮询（每 5 分钟）---
     if (minute % 5 === 2) {
       const found = await jobPurpleScan(env);
       for (const f of found) await addLog(env, `发现紫将: ${f}`, "success");
     }
 
-    // --- 预约到期抢购（每分钟）---
     await checkReservations(env);
   } catch (e) {
-    await addLog(env, `调度异常: ${e.message}`, "error");
+    if (e.code !== "NO_TOKEN") await addLog(env, `调度异常: ${e.code || e.message}`, "error");
   }
 }
 
@@ -436,7 +434,7 @@ h1 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .kv b{color:var(--acc)}
 .cur{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
 .cur span b{font-size:16px}
-.log{max-height:340px;overflow-y:auto;font-size:12.5px;font-family:inherit}
+.log{max-height:340px;overflow-y:auto;font-size:12.5px}
 .log div{padding:4px 0;border-bottom:1px solid #202a40;display:flex;gap:8px}
 .log time{color:var(--dim);flex-shrink:0;font-variant-numeric:tabular-nums}
 .lv-success{color:var(--ok)}.lv-error{color:var(--err)}.lv-warn{color:var(--warn)}
@@ -455,9 +453,22 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 .cd{font-variant-numeric:tabular-nums;color:var(--warn)}
 .muted{color:var(--dim);font-size:12px}
 .tag{font-size:11px;color:var(--dim)}
+#tokbanner{border-color:var(--warn)}
+#tokbanner .code{background:#0c111c;border:1px dashed var(--line);border-radius:8px;padding:8px;margin-top:8px;font-size:11px;word-break:break-all;font-family:monospace;max-height:90px;overflow:auto}
+#tokbanner ol{margin:6px 0 0 18px;font-size:12.5px}
 </style></head><body>
 <div id="login" hidden><h3>访问密码</h3><input id="pwd" type="password" placeholder="输入访问密码"><button onclick="doLogin()">进入</button><p id="lerr" class="muted"></p></div>
 <h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span></h1>
+<div class="card" id="tokbanner" hidden>
+  <h2>尚未上报 accessToken</h2>
+  <ol>
+    <li>把下面的代码添加为浏览器<b>书签</b>（名称随意，网址粘贴代码）</li>
+    <li>手机打开游戏 qjsh.top 并进入（已登录状态）</li>
+    <li>点一下该书签，再在游戏里<b>点击任意操作</b>（或等待心跳）即完成上报</li>
+  </ol>
+  <div class="code" id="bmcode"></div>
+  <button class="ghost" onclick="copyBM()" style="margin-top:8px">复制书签代码</button>
+</div>
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
 <div class="card"><h2>今日任务</h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
@@ -471,9 +482,12 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
 let KEY=localStorage.getItem('pk')||'';
+const ORIGIN=location.origin;
 const $=id=>document.getElementById(id);
+const BM='javascript:(function(){var W=\\''+ORIGIN+'\\',K=\\''+KEY+'\\';if(window.__qjsh)return alert(\\'监听已开启，请在游戏里点任意操作\\');window.__qjsh=1;var F=window.fetch,X=XMLHttpRequest.prototype.open,S=XMLHttpRequest.prototype.setRequestHeader;function up(t){try{navigator.sendBeacon(W+\\'/api/report-token\\',JSON.stringify({token:t,key:K}))}catch(e){}window.__qjsh=0}window.fetch=function(i,o){try{var h=(o&&o.headers)||(i&&i.headers),a=h&&(h.Authorization||(h.get&&h.get(\\'Authorization\\')));if(a)up(String(a).replace(\\'Bearer \\',\\'\\'))}catch(e){}return F.apply(this,arguments)};XMLHttpRequest.prototype.open=function(){return X.apply(this,arguments)};XMLHttpRequest.prototype.setRequestHeader=function(k,v){try{if(String(k).toLowerCase()==\\'authorization\\'&&v)up(String(v).replace(\\'Bearer \\',\\'\\'))}catch(e){}return S.apply(this,arguments)};alert(\\'监听已开启：在游戏里点击任意操作（或等几秒），token 会自动上报\\')})()';
 async function req(path,opts={}){const r=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json','X-Page-Key':KEY,...(opts.headers||{})}});if(r.status===401){$('login').hidden=false;throw 0}return r.json()}
 function doLogin(){KEY=$('pwd').value;localStorage.setItem('pk',KEY);render()}
+function copyBM(){navigator.clipboard&&navigator.clipboard.writeText($('bmcode').textContent)}
 const CUR={COPPER:'铜钱',YUANBAO:'元宝',SILVER_TICKET:'银票',PROVISIONS:'粮草',BATTLE_ACHIEVEMENT:'战功'};
 function fmt(n){return (+n).toLocaleString('zh-CN')}
 function cd(iso){const s=Math.floor((new Date(iso)-Date.now())/1000);return s>0?Math.floor(s/60)+'分'+String(s%60).padStart(2,'0')+'秒':'已结束'}
@@ -481,14 +495,11 @@ const inflight=new Set();
 async function render(){
   try{
     const s=await req('status');
-    // 预约到期且页面开着 → 浏览器端立刻抢（与每分钟 cron 双保险，秒级精度）
-    for(const h of Object.values(s.heroes||{})){
-      if(h.reserved&&h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date()&&!inflight.has(h.key)){
-        inflight.add(h.key);grab(h.key).finally(()=>inflight.delete(h.key));
-      }
-    }
-    $('hserver').textContent=s.state?.serverId||'';
-    $('hdot').style.background=s.state?.token?'var(--ok)':'var(--err)';
+    const hasTok=!!(s.token&&s.token.token);
+    $('tokbanner').hidden=hasTok;
+    if(!hasTok&&KEY)$('bmcode').textContent=BM;
+    $('hserver').textContent=hasTok?('token '+(s.token.reportedAt||'').slice(5,16).replace('T',' ')+' 上报'):'';
+    $('hdot').style.background=hasTok?'var(--ok)':'var(--err)';
     if(s.snapshot?.player){const p=s.snapshot.player;$('player').innerHTML='<b>'+p.displayName+'</b> Lv'+p.level+' · 战力 '+fmt(p.combatPower||0)}
     $('cur').innerHTML=(s.snapshot?.currencies||[]).map(c=>'<span>'+(CUR[c.code]||c.code)+' <b>'+fmt(c.balance)+'</b></span>').join('');
     const d=s.daily||{signin:false,mining:0,hourly:{}};
@@ -497,8 +508,13 @@ async function render(){
       ['签到',d.signin?'✓ 已完成':'待 00:01'],
       ['矿山',d.mining+'/10 次'],
       ['整点任务',hrs+' 次'],
-      ['上次登录',(s.state?.lastLoginAt||'').slice(11,19)],
+      ['accessToken',hasTok?'✓ 已上报':'✗ 未上报'],
     ].map(([k,v])=>'<div class="kv"><span>'+k+'</span><b>'+v+'</b></div>').join('');
+    for(const h of Object.values(s.heroes||{})){
+      if(h.reserved&&h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date()&&!inflight.has(h.key)){
+        inflight.add(h.key);grab(h.key).finally(()=>inflight.delete(h.key));
+      }
+    }
     const hs=Object.values(s.heroes||{}).filter(h=>h.status!=='GONE');
     $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>成本</th><th>保护期</th><th>状态</th><th></th></tr>'+
       hs.map(h=>{const k=h.key.replace(/"/g,'&quot;');
@@ -524,19 +540,39 @@ function authOk(request, env) {
   return key === env.PAGE_KEY;
 }
 
+const json = (obj, status = 200) =>
+  new Response(JSON.stringify(obj), {
+    status, headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
+
 async function handleApi(request, env) {
   const url = new URL(request.url);
   const route = url.pathname.replace(/^\/api\//, "");
 
+  // 书签上报（sendBeacon 发 text/plain 且无法带自定义 header，密钥从 body 取）
+  if (route === "report-token" && request.method === "POST") {
+    let body;
+    try { body = JSON.parse(await request.text()); }
+    catch { return json({ error: "bad json" }, 400); }
+    const key = body.key || request.headers.get("X-Page-Key") || url.searchParams.get("key");
+    if (env.PAGE_KEY && key !== env.PAGE_KEY) return json({ error: "unauthorized" }, 401);
+    if (!body.token || typeof body.token !== "string" || body.token.length < 20) {
+      return json({ error: "invalid token" }, 400);
+    }
+    await reportToken(env, body.token);
+    await addLog(env, "accessToken 已上报 ✓（书签）", "success");
+    return json({ ok: true });
+  }
+
   if (!authOk(request, env)) return json({ error: "unauthorized" }, 401);
 
   if (route === "status" && request.method === "GET") {
-    const [state, daily, heroes, log, snapshot] = await Promise.all([
-      load(env, "state", {}), load(env, "daily", {}),
+    const [token, daily, heroes, log, snapshot] = await Promise.all([
+      load(env, "token", {}), load(env, "daily", {}),
       load(env, "purpleHeroes", {}), load(env, "log", []), load(env, "snapshot", {}),
     ]);
-    const { token, ...stateSafe } = state;  // 不向页面暴露凭据
-    return json({ state: stateSafe, daily, heroes, log, snapshot });
+    const { token: tok, ...tokenSafe } = token;  // 不向页面暴露凭据
+    return json({ token: tokenSafe, daily, heroes, log, snapshot });
   }
   if (route === "reserve" && request.method === "POST") {
     const { key } = await request.json();
@@ -563,11 +599,6 @@ async function handleApi(request, env) {
   }
   return json({ error: "not found" }, 404);
 }
-
-const json = (obj, status = 200) =>
-  new Response(JSON.stringify(obj), {
-    status, headers: { "Content-Type": "application/json; charset=utf-8" },
-  });
 
 export default {
   async fetch(request, env) {

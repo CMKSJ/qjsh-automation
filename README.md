@@ -8,6 +8,8 @@
 
 ### `qjsh-worker/` — Cloudflare Worker（主力）
 
+**认证**：不做账密登录。accessToken 由书签在手机游戏页面捕获后上报（面板自动生成书签代码），Worker 复用该 token 执行任务——不会顶掉手机会话。
+
 部署后全自动执行（北京时间）：
 
 | 时间 | 任务 |
@@ -57,6 +59,7 @@ POST /api/v1/friend-cities/{playerId}/tavern/recruitments {operationId, candidat
 
 ## 已知特性
 
-- **单会话**：脚本登录会顶掉手机端（反之亦然）。Worker 的 token 有 7 天 KV 缓存，只在过期/被顶时重登。
+- **单会话**：手机重新进游戏会换新 accessToken（旧的失效）→ 面板提示 → 重新点一次书签即可。游戏客户端不把 accessToken 落盘，书签通过临时接管 `fetch`/`XHR` 捕获请求头是唯一的不顶号获取方式。
+- **存储**：Worker 无 KV 绑定时内存降级（实例重启需重新上报 token），建议按 README 绑定 KV。
 - **海外出口**：Worker 出口为 Cloudflare IP，部署前建议先实测 `service.qjsh.top` 可达性。
 - 本项目仅供个人账号日常自动化学习研究，请自行评估游戏服务条款风险。
