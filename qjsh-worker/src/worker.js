@@ -456,8 +456,22 @@ async function grabHero(env, key, manual = false) {
       await addLog(env, `抢购失败: ${h.hero} 已不在卡池`, "warn");
       return { ok: false, msg: "武将已不在卡池" };
     }
+    if (/PROTECT/i.test(e.code || "")) {
+      // 保护期与记录不符（多为卡池刷新产生新保护期）：拉最新保护期决定重排或短重试
+      try {
+        const t2 = await withSession(env, async (token) =>
+          api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token }));
+        const pe = Date.parse(t2.protectionEndsAt || "");
+        if (pe - Date.now() > 5000) {
+          h.protectionEndsAt = t2.protectionEndsAt;
+          heroes[key] = h; await save(env, "purpleHeroes", heroes);
+          await addLog(env, `${h.hero} 卡池已刷新，保护期更新至 ${t2.protectionEndsAt.slice(11,19)}Z，自动重新蹲点`, "warn");
+          return { ok: false, msg: "保护期已更新，重新排队" };
+        }
+      } catch (e2) { /* 查询失败按普通失败处理 */ }
+    }
     await addLog(env, `抢购失败(${h.hero}): ${e.code || e.message}`, "error");
-    return { ok: false, msg: e.message };
+    return { ok: false, msg: e.code || e.message };
   }
 }
 
@@ -488,7 +502,7 @@ async function grabBurst(env, key) {
   for (let i = 0; i < 4; i++) {
     r = await grabHero(env, key);
     if (r.ok) return r;
-    if (!/PROTECTION|保护/i.test(r.msg || "")) return r;
+    if (!/^TAVERN_CANDIDATE_PROTECTED$/.test(r.msg || "")) return r;
     await new Promise(res => setTimeout(res, 120));
   }
   return r;
@@ -704,10 +718,14 @@ async function render(){
     }
     (window.__armed=window.__armed||{});
     for(const h of Object.values(s.heroes||{})){
-      if(h.reserved&&h.status==='ALIVE'&&h.protectionEndsAt&&!window.__armed[h.key]){
-        const dt=new Date(h.protectionEndsAt)-Date.now();
-        if(dt>0&&dt<3600000){
-          window.__armed[h.key]=setTimeout(function(k){return function(){grab(k)}}(h.key),Math.max(0,dt-150));
+      if(h.reserved&&h.status==='ALIVE'&&h.protectionEndsAt){
+        const at=h.protectionEndsAt;
+        if(window.__armed[h.key]&&window.__armed[h.key].at!==at){clearTimeout(window.__armed[h.key].t);window.__armed[h.key]=null}
+        if(!window.__armed[h.key]){
+          const dt=new Date(at)-Date.now();
+          if(dt>0&&dt<3600000){
+            window.__armed[h.key]={at:at,t:setTimeout(function(k){return function(){grab(k)}}(h.key),Math.max(0,dt-150))};
+          }
         }
       }
     }
