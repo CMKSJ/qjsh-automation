@@ -8,7 +8,7 @@ export default {
     if (url.pathname === "/api/report-token" && request.method === "POST") {
       try {
         const body = await request.text();
-        const r = await fetch("http://72.18.82.231:8787/api/report-token", {
+        const r = await fetch(env.RELAY_URL || "http://72.18.82.231:8787/r/__RELAY_SECRET__", {
           method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8", "X-Relay-Key": env.RELAY_KEY || "" }, body,
         });
         return new Response(await r.text(), { status: r.status, headers: cors });
