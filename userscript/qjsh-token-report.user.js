@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Q将水浒 · token 自动上报
 // @namespace    qjsh-automation
-// @version      1.2
-// @description  游戏页面自动捕获 accessToken 并上报到自动化面板。右下角徽标：灰=待捕获 橙=上报中 绿=服务器确认 红=失败(含原因)
+// @version      1.3
+// @description  游戏页面自动捕获 accessToken 并上报到自动化面板。右下角徽标：灰=待捕获 橙=上报中 绿=确认后4秒消失 红=失败常显(含原因)
 // @match        https://qjsh.top/*
 // @match        https://*.qjsh.top/*
 // @run-at       document-start
@@ -17,9 +17,12 @@
   badge.textContent = "QJSH:脚本已运行,待捕获token";
   badge.style.cssText = "position:fixed;right:8px;bottom:8px;z-index:99999;background:#444;color:#fff;" +
     "font:11px/1.4 monospace;padding:3px 8px;border-radius:10px;opacity:.9;pointer-events:none;max-width:60vw;";
-  function setStatus(text, color) {
+  function setStatus(text, color, autoHide) {
     badge.textContent = "QJSH:" + text;
     badge.style.background = color;
+    badge.style.display = "block";
+    clearTimeout(window.__qjshHide);
+    if (autoHide) window.__qjshHide = setTimeout(function () { badge.style.display = "none"; }, 4000);
   }
   (function mount() {
     if (!document.body) return setTimeout(mount, 200);
@@ -39,7 +42,7 @@
     }).then(function (r) {
       return r.json().catch(function () { return {}; });
     }).then(function (d) {
-      if (d && d.ok) setStatus("已上报✓服务器已确认", "#2a7");
+      if (d && d.ok) setStatus("已上报✓", "#2a7", true);
       else setStatus("服务器拒绝:" + (d && d.error || d && d.msg || "未知"), "#a22");
     }).catch(function (e) {
       setStatus("上报失败:网络到workers.dev不通(需代理或自定义域名)", "#a22");
