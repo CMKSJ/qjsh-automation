@@ -1,0 +1,18 @@
+# 凭据与运行时产物
+.token
+*.env
+__pycache__/
+
+# 本地运行数据（含账号信息）
+qjsh_data.json
+bootstrap.json
+ep_*.json
+home_*.json
+provisions_watch.log
+headers.txt
+*.txt
+
+# 工具
+node_modules/
+check_syntax.py
+.wrangler/

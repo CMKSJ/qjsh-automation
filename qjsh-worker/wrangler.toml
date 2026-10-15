@@ -1,0 +1,20 @@
+name = "qjsh-bot"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+# 每分钟一个 tick，北京时间（UTC+8）的调度在 worker 内部判断：
+#   UTC 16:01 = 北京 00:01 → 签到 + 矿山开采计划
+#   UTC 整分 0 = 北京整点   → 兑换银票 / 征收 / 收租
+#   tick 内部 minute%5==2  → 紫将公告轮询
+#   每个 tick             → 预约到期抢购检查
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "QJSH_KV"
+id = "替换为你的 KV namespace ID"   # wrangler kv namespace create QJSH_KV
+
+# 凭据用 secrets 配置（不要写进本文件）：
+#   npx wrangler secret put PHONE      # 游戏手机号
+#   npx wrangler secret put PASSWORD   # 游戏密码
+#   npx wrangler secret put PAGE_KEY   # 面板访问密码（自定）
