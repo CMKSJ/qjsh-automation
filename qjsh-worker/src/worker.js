@@ -464,10 +464,13 @@ async function grabHero(env, key, manual = false) {
           api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token }));
         const pe = Date.parse(t2.protectionEndsAt || "");
         if (pe - Date.now() > 5000) {
+          const changed = t2.protectionEndsAt !== h.protectionEndsAt;
           h.protectionEndsAt = t2.protectionEndsAt;
           heroes[key] = h; await save(env, "purpleHeroes", heroes);
-          await addLog(env, `${h.hero} 卡池已刷新，保护期更新至 ${t2.protectionEndsAt.slice(11,19)}Z，自动重新蹲点`, "warn");
-          return { ok: false, msg: "保护期已更新，重新排队" };
+          await addLog(env, changed
+            ? `${h.hero} 卡池已刷新，保护期更新至 ${t2.protectionEndsAt.slice(11,19)}Z，自动重新蹲点`
+            : `${h.hero} 保护期尚未结束（${t2.protectionEndsAt.slice(11,19)}Z 开闸），继续按计划蹲点`, "warn");
+          return { ok: false, msg: changed ? "保护期已更新，重新排队" : "保护期未到，继续蹲点" };
         }
       } catch (e2) { /* 查询失败按普通失败处理 */ }
     }
