@@ -16,3 +16,5 @@ headers.txt
 node_modules/
 check_syntax.py
 .wrangler/
+server/state/
+server/state_migrate/

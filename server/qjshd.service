@@ -1,0 +1,15 @@
+[Unit]
+Description=Q将水浒自动化面板与调度
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/qjsh
+ExecStart=/usr/bin/python3 /opt/qjsh/qjshd.py
+Restart=always
+RestartSec=5
+MemoryMax=150M
+
+[Install]
+WantedBy=multi-user.target

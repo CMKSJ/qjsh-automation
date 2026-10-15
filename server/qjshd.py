@@ -1,0 +1,805 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Q将水浒自动化 · 服务器版（自 Cloudflare Worker 完整迁���）
+
+形态：单进程常驻（面板 HTTP 线程 + 每分钟调度线程），状态存本地 JSON（原子写）
+部署：/opt/qjsh/qjshd.py + page.html；systemd: qjshd.service；端口 8787
+依赖：仅 Python 3 标准库
+"""
+import json
+import os
+import threading
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
+from urllib import error as urllib_error
+
+BASE = "https://service.qjsh.top"
+PORT = 8787
+STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
+PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "page.html")
+TZ = timezone(timedelta(hours=8))  # 北京时间
+
+PURPLE_PLUS = ["PURPLE", "ORANGE"]
+EXCHANGE_TIERS = [8, 5, 1]
+DAILY_MINING = 10
+LOG_MAX = 300
+NO_TOKEN_WARN_MS = 3600_000
+ACTIVITY_TIMEOUT_S = 10 * 60
+SELF_ACTION_GRACE_S = 2 * 60
+GONE_TTL_S = 30 * 60
+GRABBED_TTL_S = 2 * 3600
+FP_NAMES = ["progress", "copper", "yuanbao", "ticket"]
+SNAP_WRITE_THROTTLE_S = 5 * 60
+
+LOCK = threading.RLock()
+_warn_cache = {}  # 内存限频（warnOnce）
+
+
+# ---------- 状态（JSON 文件，原子写） ----------
+
+def _now_ms():
+    return int(time.time() * 1000)
+
+
+def spath(key):
+    return os.path.join(STATE_DIR, f"{key}.json")
+
+
+def load(key, fallback):
+    try:
+        with open(spath(key), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return fallback
+
+
+def save(key, value):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = spath(key) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(value, f, ensure_ascii=False)
+    os.replace(tmp, spath(key))
+
+
+def add_log(msg, level="info"):
+    with LOCK:
+        log = load("log", [])
+        log.insert(0, {"t": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{datetime.now(timezone.utc).microsecond // 1000:03d}Z", "msg": msg, "level": level})
+        del log[LOG_MAX:]
+        save("log", log)
+
+
+def warn_once(cache_key, msg):
+    with LOCK:
+        now = _now_ms()
+        if now - _warn_cache.get(cache_key, 0) < NO_TOKEN_WARN_MS:
+            return
+        _warn_cache[cache_key] = now
+        add_log(msg, "warn")
+
+
+# ---------- 游戏 API ----------
+
+class ApiError(Exception):
+    def __init__(self, code, message, status=0):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.status = status
+
+
+def api(method, path, token=None, body=None):
+    req = urllib_request.Request(BASE + path, method=method)
+    req.add_header("Accept", "application/json")
+    req.add_header("User-Agent", "Mozilla/5.0")
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib_request.urlopen(req, data=data, timeout=30) as resp:
+            payload = json.loads(resp.read().decode())
+    except urllib_error.HTTPError as e:
+        try:
+            payload = json.loads(e.read().decode())
+        except Exception:
+            raise ApiError("HTTP_ERROR", f"HTTP {e.code}", e.code)
+    if payload.get("code") != "OK":
+        raise ApiError(payload.get("code", "?"), payload.get("message", ""), payload.get("code") and 200 or 0)
+    return payload.get("data")
+
+
+def op_id():
+    return str(uuid.uuid4())
+
+
+# ---------- token ----------
+
+def read_token():
+    st = load("token", {})
+    tok = st.get("token")
+    if not tok or _now_ms() > st.get("expiresAt", 0):
+        return None
+    return tok
+
+
+def report_token(token):
+    act = load("activity", {})
+    act["fingerprint"] = None  # 重置活跃基线
+    save("activity", act)
+    save("token", {"token": token, "reportedAt": datetime.now(timezone.utc).isoformat(), "expiresAt": _now_ms() + 6 * 86400_000})
+
+
+def with_session(fn):
+    token = read_token()
+    if not token:
+        warn_once("noToken", "尚无 accessToken：请在手机游戏页面点一下书签上报（见面板顶部说明）")
+        raise ApiError("NO_TOKEN", "尚无 accessToken")
+    try:
+        return fn(token)
+    except ApiError as e:
+        if e.code in ("SESSION_EXPIRED", "SESSION_REPLACED") or e.status == 401:
+            save("token", {})
+            act = load("activity", {})
+            act["fingerprint"] = None
+            save("activity", act)
+            add_log("accessToken 已失效（手机端重新进过游戏？）——请重新点书签上报", "warn")
+        raise
+
+
+# ---------- 快照 ----------
+
+_snap_last_write = 0.0
+
+
+def write_snapshot(token, home, force=False):
+    global _snap_last_write
+    hero_capacity = None
+    try:
+        t = api("GET", "/api/v1/tavern", token=token)
+        hero_capacity = {"capacity": t.get("heroCapacity"), "owned": t.get("ownedHeroCount"), "remaining": t.get("remainingHeroCapacity")}
+    except Exception:
+        pass
+    snap = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "player": {k: home["player"].get(k) for k in ("displayName", "level", "combatPower", "provisionsCapacity")},
+        "currencies": home["economy"]["currencies"],
+        "mining": home.get("mining"),
+        "heroCapacity": hero_capacity,
+    }
+    with LOCK:
+        if not force and time.time() - _snap_last_write < SNAP_WRITE_THROTTLE_S:
+            return
+        _snap_last_write = time.time()
+        save("snapshot", snap)
+
+
+def refresh_snapshot(force=False):
+    try:
+        with_session(lambda tok: write_snapshot(tok, api("GET", "/api/v1/home", token=tok), force=force))
+    except Exception:
+        pass
+
+
+# ---------- 活跃检测 ----------
+
+def activity_fingerprint(home):
+    def v(code):
+        for c in home["economy"]["currencies"]:
+            if c["code"] == code:
+                return c.get("version", 0)
+        return 0
+    return "|".join(str(x) for x in [home["player"].get("progressVersion", 0), v("COPPER"), v("YUANBAO"), v("SILVER_TICKET")])
+
+
+def track_activity(home):
+    fp = activity_fingerprint(home)
+    with LOCK:
+        st = load("activity", {})
+        prev = st.get("fingerprint")
+        now = _now_ms()
+        st["fingerprint"] = fp
+        if prev is not None and prev != fp:
+            if not st.get("lastSelfActionAt") or now - st["lastSelfActionAt"] > SELF_ACTION_GRACE_S * 1000:
+                if not st.get("lastActiveAt") or now - st["lastActiveAt"] > ACTIVITY_TIMEOUT_S * 1000:
+                    add_log("检测到玩家活跃，自动暂停消耗性任务", "warn")
+                st["lastActiveAt"] = now
+        st["active"] = bool(st.get("lastActiveAt")) and (now - st["lastActiveAt"] < ACTIVITY_TIMEOUT_S * 1000)
+        save("activity", st)
+        return st["active"]
+
+
+def mark_self_action():
+    with LOCK:
+        st = load("activity", {})
+        st["lastSelfActionAt"] = _now_ms()
+        save("activity", st)
+
+
+# ---------- 每日任务 ----------
+
+def job_signin():
+    results = []
+    try:
+        def do(token):
+            s = api("GET", "/api/v1/login-rewards", token=token)
+            day = next((d for d in s.get("days", []) if d["status"] in ("AVAILABLE", "CLAIMABLE")), None)
+            if not day:
+                results.append("7日签到: 今日已签")
+            else:
+                api("POST", "/api/v1/login-rewards/claims", token=token,
+                    body={"operationId": op_id(), "day": day["day"], "cycleId": s["cycleId"], "expectedVersion": s["version"]})
+                results.append(f"7日签到: 第{day['day']}天 ✓")
+        with_session(do)
+    except Exception as e:
+        results.append(f"7日签到失败: {getattr(e, 'code', e)}")
+    try:
+        def do2(token):
+            s = api("GET", "/api/v1/monthly-login-rewards", token=token)
+            if not any(d["status"] in ("AVAILABLE", "CLAIMABLE") for d in s.get("days", [])):
+                results.append("月签到: 今日已签")
+                return
+            api("POST", "/api/v1/monthly-login-rewards/claims", token=token,
+                body={"operationId": op_id(), "monthId": s["monthId"], "expectedVersion": s["version"], "mode": "ALL", "day": None})
+            results.append("月签到: ✓")
+        with_session(do2)
+    except Exception as e:
+        results.append(f"月签到失败: {getattr(e, 'code', e)}")
+    return results
+
+
+def mine_once():
+    try:
+        with_session(lambda tok: api("POST", "/api/v1/home/mining-collections", token=tok, body={"operationId": op_id()}))
+        return "OK"
+    except ApiError as e:
+        if e.code == "HOME_MINING_DAILY_LIMIT":
+            return "DONE"
+        if e.code == "HOME_MINING_COOLDOWN":
+            return "COOLDOWN"
+        raise
+
+
+def job_hourly():
+    out = []
+    try:
+        def do(token):
+            home = api("GET", "/api/v1/home", token=token)
+            cur = {c["code"]: c for c in home["economy"]["currencies"]}
+            prov = cur.get("PROVISIONS", {}).get("balance", 0)
+            copper = cur.get("COPPER", {}).get("balance", 0)
+            prov_cap = home["player"].get("provisionsCapacity", 22)
+            # 防溢出最小兑换 y = max(x+13-m, 0)
+            budget = max(prov + 13 - prov_cap, 0)
+            plan = {}
+            for t in EXCHANGE_TIERS:
+                while budget >= t:
+                    plan[t] = plan.get(t, 0) + 1
+                    budget -= t
+            tickets = sum(t * n for t, n in plan.items())
+            copper_need = tickets * 100
+            if tickets > 0 and copper >= copper_need:
+                for t, n in plan.items():
+                    api("POST", "/api/v1/home/market/exchanges", token=token,
+                        body={"operationId": op_id(), "offerId": f"MARKET_EXCHANGE_{t}", "quantity": n})
+                out.append(f"兑换 {tickets} 银票 (-{copper_need}铜 -{tickets}粮草)")
+            elif tickets > 0:
+                out.append(f"兑换跳过: 需{copper_need}铜 仅有{copper}")
+            else:
+                out.append(f"兑换跳过: 粮草 {prov}/{prov_cap} 下一小时不会溢出")
+
+            market = api("GET", "/api/v1/home/market", token=token)
+            if market.get("collectionStatus") == "READY":
+                r = api("POST", "/api/v1/home/market/collections", token=token,
+                        body={"operationId": op_id(), "expectedVersion": market["version"]})
+                out.append(f"征收 +{r.get('collectedCopper')} 铜")
+            else:
+                out.append(f"征收: {market.get('collectionStatus')}")
+
+            occ = home.get("occupation") or {}
+            if occ.get("status") == "GARRISONED" or (occ.get("rent") or {}).get("availableCopper", 0) > 0:
+                api("POST", "/api/v1/home/garrison/rent-collections", token=token,
+                    body={"operationId": op_id(), "expectedVersion": occ["version"]})
+                out.append("收租 ✓")
+            else:
+                out.append("收租: 未驻守或无可收")
+
+            write_snapshot(token, home, force=True)
+        with_session(do)
+        mark_self_action()
+    except Exception as e:
+        out.append(f"失败: {getattr(e, 'code', e)}")
+    return out
+
+
+# ---------- 紫将监控与抢购 ----------
+
+def parse_appearance(text):
+    import re
+    m = re.search(r"【酒馆消息】(.+?)的酒馆出现了(\d+)星(紫|橙)将【(.+?)】", text or "")
+    return {"owner": m.group(1), "star": int(m.group(2)), "hero": m.group(4)} if m else None
+
+
+def job_purple_scan():
+    found = []
+    try:
+        def do(token):
+            ann = api("GET", "/api/v1/home-announcements", token=token)
+            appearances = []
+            for e in ann.get("entries", []):
+                p = parse_appearance(e.get("content", ""))
+                if p:
+                    p["at"] = e.get("startsAt")
+                    appearances.append(p)
+            with LOCK:
+                pcache = load("playerCache", {})
+                heroes = load("purpleHeroes", {})
+                for a in appearances:
+                    try:
+                        if a["owner"] not in pcache:
+                            s = api("GET", "/api/v1/player-search?type=NAME&query=" + urllib_parse.quote(a["owner"]), token=token)
+                            players = s.get("players") or []
+                            if not players:
+                                continue
+                            p0 = players[0]
+                            pcache[a["owner"]] = {"playerId": p0["playerId"], "shortId": p0.get("shortId"), "level": p0.get("level")}
+                        pid = pcache[a["owner"]]["playerId"]
+                        key = f"{pid}:{a['hero']}"
+                        if heroes.get(key, {}).get("status") == "GRABBED":
+                            continue
+                        t = api("GET", f"/api/v1/friend-cities/{pid}/tavern", token=token)
+                        cand = next((c for c in t.get("candidates", []) if c["name"] == a["hero"] and c["quality"] in PURPLE_PLUS), None)
+                        if cand:
+                            is_new = key not in heroes or heroes[key].get("status") != "ALIVE"
+                            heroes[key] = {**heroes.get(key, {}), "key": key, "playerId": pid, "owner": a["owner"],
+                                           "ownerLevel": pcache[a["owner"]].get("level"), "hero": a["hero"], "quality": cand["quality"],
+                                           "star": cand["star"], "troopType": cand.get("troopType"), "copperCost": cand.get("copperCost"),
+                                           "silverTicketCost": cand.get("silverTicketCost", 0), "candidateId": cand["candidateId"],
+                                           "candidateVersion": cand.get("version", 0), "foundAt": a["at"],
+                                           "protectionEndsAt": t.get("protectionEndsAt"), "lastSeenAt": datetime.now(timezone.utc).isoformat(),
+                                           "status": "ALIVE"}
+                            if is_new:
+                                found.append(f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)")
+                        elif heroes.get(key, {}).get("status") == "ALIVE":
+                            heroes[key]["status"] = "GONE"
+                            heroes[key]["goneAt"] = datetime.now(timezone.utc).isoformat()
+                    except Exception:
+                        pass
+                # TTL 清理 + 存活复核
+                for key in list(heroes.keys()):
+                    h = heroes[key]
+                    if h.get("status") == "GONE" and time.time() - _parse_ts(h.get("goneAt")) > GONE_TTL_S:
+                        del heroes[key]
+                        continue
+                    if h.get("status") == "GRABBED" and time.time() - _parse_ts(h.get("grabbedAt")) > GRABBED_TTL_S:
+                        del heroes[key]
+                        continue
+                    if h.get("status") != "ALIVE":
+                        continue
+                    if any(f.startswith(h["owner"] + "家 " + h["hero"]) or (h["hero"] in f and h["owner"] in f) for f in found):
+                        continue
+                    try:
+                        t = api("GET", f"/api/v1/friend-cities/{h['playerId']}/tavern", token=token)
+                        cand = next((c for c in t.get("candidates", []) if c["candidateId"] == h.get("candidateId")), None)
+                        if not cand:
+                            h["status"] = "GONE"
+                            h["goneAt"] = datetime.now(timezone.utc).isoformat()
+                        else:
+                            h["candidateVersion"] = cand.get("version", 0)
+                            h["protectionEndsAt"] = t.get("protectionEndsAt")
+                            h["lastSeenAt"] = datetime.now(timezone.utc).isoformat()
+                    except Exception:
+                        pass
+                save("playerCache", pcache)
+                save("purpleHeroes", heroes)
+        with_session(do)
+    except ApiError as e:
+        if e.code != "NO_TOKEN":
+            add_log(f"紫将扫描失败: {e.code}", "error")
+    return found
+
+
+def _parse_ts(iso):
+    try:
+        return datetime.fromisoformat((iso or "").replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def grab_hero(key, manual=False):
+    with LOCK:
+        heroes = load("purpleHeroes", {})
+    h = heroes.get(key)
+    if not h:
+        return {"ok": False, "msg": "目标不存在"}
+    if h.get("status") == "GRABBED":
+        return {"ok": False, "msg": "已抢购成功"}
+
+    # 快照粗筛 + 实时校验容量
+    snap_cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
+    clearly_open = snap_cap and snap_cap.get("capacity", 0) > 0 and snap_cap.get("owned", 0) < snap_cap.get("capacity", 0)
+    if not clearly_open:
+        try:
+            def capcheck(token):
+                t = api("GET", "/api/v1/tavern", token=token)
+                return t.get("ownedHeroCount", 0) >= t.get("heroCapacity", 0)
+            if with_session(capcheck):
+                msg = "武将位已满，请先解雇或提取武魂腾出位置"
+                if not manual:
+                    warn_once("capFull", "抢购跳过: " + msg)
+                return {"ok": False, "msg": msg}
+        except Exception:
+            pass
+
+    def do(token):
+        # 快路径：直接 POST；失败回退刷新
+        try:
+            api("POST", f"/api/v1/friend-cities/{h['playerId']}/tavern/recruitments", token=token,
+                body={"operationId": op_id(), "candidateId": h["candidateId"], "expectedCandidateVersion": h.get("candidateVersion", 0)})
+        except ApiError:
+            t = api("GET", f"/api/v1/friend-cities/{h['playerId']}/tavern", token=token)
+            cand = next((c for c in t.get("candidates", []) if c["name"] == h["hero"] and c["quality"] == h.get("quality")), None)
+            if not cand:
+                # 网络掩盖检查：近 5 分钟获得的同名武将 = 实际成功
+                try:
+                    mine = api("GET", "/api/v1/heroes?limit=50", token=token)
+                    got = next((x for x in mine.get("heroes", [])
+                                if x["name"] == h["hero"] and x.get("obtainedAt")
+                                and time.time() - _parse_ts(x["obtainedAt"]) < 300), None)
+                    if got:
+                        h["status"] = "GRABBED"
+                        h["grabbedAt"] = got["obtainedAt"]
+                        raise _Grabbed()
+                except _Grabbed:
+                    raise
+                except Exception:
+                    pass
+                raise ApiError("GONE", "武将已不在卡池")
+            h["candidateId"] = cand["candidateId"]
+            h["candidateVersion"] = cand.get("version", 0)
+            api("POST", f"/api/v1/friend-cities/{h['playerId']}/tavern/recruitments", token=token,
+                body={"operationId": op_id(), "candidateId": h["candidateId"], "expectedCandidateVersion": h["candidateVersion"]})
+        h["status"] = "GRABBED"
+        h["grabbedAt"] = datetime.now(timezone.utc).isoformat()
+        raise _Grabbed()
+
+    class _Grabbed(Exception):
+        pass
+
+    try:
+        with_session(do)
+    except _Grabbed:
+        with LOCK:
+            heroes = load("purpleHeroes", {})
+            if key in heroes:
+                heroes[key].update({"status": "GRABBED", "grabbedAt": h.get("grabbedAt") or datetime.now(timezone.utc).isoformat()})
+                save("purpleHeroes", heroes)
+        mark_self_action()
+        add_log(f"🎉 抢购成功: {h['owner']}家 {h['hero']}({h['quality']}{h['star']}星)", "success")
+        return {"ok": True, "msg": f"已抢到 {h['hero']}"}
+    except ApiError as e:
+        if e.code == "GONE":
+            with LOCK:
+                heroes = load("purpleHeroes", {})
+                if key in heroes:
+                    heroes[key]["status"] = "GONE"
+                    heroes[key]["goneAt"] = datetime.now(timezone.utc).isoformat()
+                    save("purpleHeroes", heroes)
+            add_log(f"售罄: {h['hero']} 已被别人抢先", "warn")
+            return {"ok": False, "msg": "武将已不在卡池（售罄）"}
+        if "PROTECT" in (e.code or "").upper():
+            # 拉最新保护期：>5s 重排，<=5s 连发
+            try:
+                def getpe(token):
+                    return api("GET", f"/api/v1/friend-cities/{h['playerId']}/tavern", token=token).get("protectionEndsAt")
+                pe = with_session(getpe)
+                if pe and _parse_ts(pe) - time.time() > 5:
+                    changed = pe != h.get("protectionEndsAt")
+                    with LOCK:
+                        heroes = load("purpleHeroes", {})
+                        if key in heroes:
+                            heroes[key]["protectionEndsAt"] = pe
+                            save("purpleHeroes", heroes)
+                    add_log(f"{h['hero']} " + (f"卡池已刷新，保护期更新至 {pe[11:19]}Z，自动重新蹲点" if changed
+                                              else f"保护期尚未结束（{pe[11:19]}Z 开闸），继续按计划蹲点"), "warn")
+                    return {"ok": False, "msg": "保护期已更新，重新排队" if changed else "保护期未到，继续���点"}
+            except Exception:
+                pass
+        add_log(f"抢购失败({h['hero']}): {e.code}", "error")
+        return {"ok": False, "msg": e.code}
+    except Exception as e:
+        add_log(f"抢购失败({h['hero']}): {e}", "error")
+        return {"ok": False, "msg": str(e)}
+
+
+def grab_burst(key):
+    r = {"ok": False, "msg": ""}
+    for _ in range(4):
+        r = grab_hero(key)
+        if r["ok"]:
+            return r
+        if r.get("msg") != "TAVERN_CANDIDATE_PROTECTED":
+            return r
+        time.sleep(0.12)
+    return r
+
+
+_grab_threads = {}
+
+
+def check_reservations():
+    with LOCK:
+        heroes = load("purpleHeroes", {})
+    now = time.time()
+    for key, h in heroes.items():
+        if h.get("status") != "ALIVE" or not h.get("reserved"):
+            continue
+        dt = _parse_ts(h.get("protectionEndsAt")) - now
+        if dt <= 0:
+            if key not in _grab_threads or not _grab_threads[key].is_alive():
+                th = threading.Thread(target=grab_burst, args=(key,), daemon=True)
+                _grab_threads[key] = th
+                th.start()
+        elif dt <= 90:
+            if key not in _grab_threads or not _grab_threads[key].is_alive():
+                def waiter(k=key, wait=dt):
+                    time.sleep(max(0, wait - 0.15))
+                    grab_burst(k)
+                th = threading.Thread(target=waiter, daemon=True)
+                _grab_threads[key] = th
+                th.start()
+
+
+# ---------- 调度 ----------
+
+def tick():
+    now = datetime.now(TZ)
+    date, hour, minute = now.strftime("%Y-%m-%d"), now.hour, now.minute
+    daily = load("daily", {})
+    if daily.get("date") != date:
+        daily = {"date": date, "signin": False, "mining": 0, "hourly": {}}
+        save("daily", daily)
+
+    token = read_token()
+    if not token:
+        warn_once("noToken", "尚无 accessToken：请在手机游戏页面点一下书签上报（见面板顶部说明）")
+        return
+
+    # 采样 + 活跃检测
+    player_active = False
+    try:
+        home = with_session(lambda tok: api("GET", "/api/v1/home", token=tok))
+        write_snapshot(read_token(), home)
+        player_active = track_activity(home)
+    except Exception:
+        pass
+
+    if load("paused", False) is True or player_active:
+        if minute % 5 == 2:
+            for f in job_purple_scan():
+                add_log(f"发现紫将(暂停中仅记录): {f}", "success")
+        return
+
+    try:
+        if hour == 0 and minute == 1 and not daily.get("signin"):
+            r = job_signin()
+            add_log("签到: " + "; ".join(r))
+            daily["signin"] = True
+            save("daily", daily)
+
+        if hour == 0 and 1 <= minute <= 30 and daily.get("mining", 0) < DAILY_MINING:
+            r = mine_once()
+            if r == "OK":
+                mark_self_action()
+                daily["mining"] = daily.get("mining", 0) + 1
+                save("daily", daily)
+                if daily["mining"] == DAILY_MINING:
+                    add_log("矿山: 今日 10 次开采完成")
+            elif r == "DONE":
+                daily["mining"] = DAILY_MINING
+                save("daily", daily)
+                add_log("矿山: 次数已用完（可能在游戏内已采）")
+            elif r == "COOLDOWN":
+                time.sleep(30)
+                r2 = mine_once()
+                if r2 == "OK":
+                    mark_self_action()
+                    daily["mining"] = daily.get("mining", 0) + 1
+                    save("daily", daily)
+                elif r2 == "DONE":
+                    daily["mining"] = DAILY_MINING
+                    save("daily", daily)
+
+        if minute == 0 and str(hour) not in (daily.get("hourly") or {}):
+            r = job_hourly()
+            daily = load("daily", {})
+            daily.setdefault("hourly", {})[str(hour)] = True
+            save("daily", daily)
+            add_log(f"[{hour:02d}:00] " + "; ".join(r))
+
+        if minute % 5 == 2:
+            for f in job_purple_scan():
+                add_log(f"发现紫将: {f}", "success")
+
+        check_reservations()
+    except Exception as e:
+        add_log(f"调度异常: {e}", "error")
+
+
+def scheduler_loop():
+    while True:
+        try:
+            tick()
+        except Exception as e:
+            add_log(f"调度线程异常: {e}", "error")
+        now = time.time()
+        time.sleep(60 - (now % 60) + 1)
+
+
+# ---------- HTTP ----------
+
+_PAGE = open(PAGE_FILE, encoding="utf-8").read() if os.path.exists(PAGE_FILE) else "<h1>page.html missing</h1>"
+
+
+def jresp(obj, status=200, extra=None):
+    import io
+    body = json.dumps(obj, ensure_ascii=False).encode()
+    head = {"Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*"}
+    if extra:
+        head.update(extra)
+    return status, head, body
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send(self, status, headers, body):
+        self.send_response(status)
+        for k, v in headers.items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        u = urllib_parse.urlparse(self.path)
+        if u.path == "/" or u.path == "/index.html":
+            self._send(200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}, _PAGE.encode())
+            return
+        if u.path == "/api/status":
+            with LOCK:
+                data = {
+                    "token": {k: v for k, v in load("token", {}).items() if k != "token"},
+                    "daily": load("daily", {}),
+                    "heroes": load("purpleHeroes", {}),
+                    "log": load("log", []),
+                    "snapshot": load("snapshot", {}),
+                    "paused": load("paused", False) is True,
+                    "activity": {k: v for k, v in load("activity", {}).items() if k != "fingerprint"},
+                }
+            t = data["token"]
+            t["hasToken"] = bool(read_token())
+            st, hd, bd = jresp(data)
+            self._send(st, hd, bd)
+            return
+        st, hd, bd = jresp({"error": "not found"}, 404)
+        self._send(st, hd, bd)
+
+    def do_POST(self):
+        u = urllib_parse.urlparse(self.path)
+        route = u.path
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length).decode()) if length else {}
+        except Exception:
+            body = {}
+        if route == "/api/report-token":
+            tok = body.get("token")
+            if not tok or not isinstance(tok, str) or len(tok) < 20:
+                st, hd, bd = jresp({"error": "invalid token"}, 400)
+                self._send(st, hd, bd)
+                return
+            report_token(tok)
+            try:
+                home = api("GET", "/api/v1/home", token=tok)
+                write_snapshot(tok, home, force=True)
+                add_log(f"accessToken 已上报 ✓ {home['player']['displayName']} Lv{home['player']['level']}（书签）", "success")
+                st, hd, bd = jresp({"ok": True})
+            except Exception as e:
+                code = getattr(e, "code", "")
+                if code in ("SESSION_EXPIRED", "SESSION_REPLACED"):
+                    save("token", {})
+                    add_log("上报的 token 无效——请确认游戏已进入（过了登录页）再点书签", "error")
+                    st, hd, bd = jresp({"ok": False, "error": "invalid token"}, 400)
+                else:
+                    add_log("accessToken 已上报 ✓（验证请求延迟，不影响使用）（书签）", "success")
+                    st, hd, bd = jresp({"ok": True})
+            self._send(st, hd, bd)
+            return
+        if route == "/api/pause":
+            val = bool(body.get("paused"))
+            save("paused", val)
+            add_log("自动化已暂停（手动操作不受影响）" if val else "自动化已恢复", "warn" if val else "success")
+            if val:
+                threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+            st, hd, bd = jresp({"ok": True, "paused": val})
+            self._send(st, hd, bd)
+            return
+        if route == "/api/reserve":
+            key = body.get("key")
+            with LOCK:
+                heroes = load("purpleHeroes", {})
+            if key not in heroes:
+                st, hd, bd = jresp({"error": "not found"}, 404)
+                self._send(st, hd, bd)
+                return
+            heroes[key]["reserved"] = not heroes[key].get("reserved")
+            if heroes[key]["reserved"]:
+                heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
+            with LOCK:
+                save("purpleHeroes", heroes)
+            add_log(("预约" if heroes[key]["reserved"] else "取消预约") + f": {heroes[key]['owner']}家 {heroes[key]['hero']}")
+            st, hd, bd = jresp({"ok": True, "reserved": heroes[key]["reserved"]})
+            self._send(st, hd, bd)
+            return
+        if route == "/api/grab":
+            r = grab_hero(body.get("key"), manual=True)
+            st, hd, bd = jresp(r)
+            self._send(st, hd, bd)
+            return
+        if route == "/api/job":
+            name = body.get("name")
+            if name == "signin":
+                r = job_signin()
+                daily = load("daily", {})
+                daily["signin"] = True
+                daily["date"] = datetime.now(TZ).strftime("%Y-%m-%d")
+                save("daily", daily)
+                add_log("手动签到: " + "; ".join(r))
+                resp = {"ok": True, "result": r}
+            elif name == "hourly":
+                r = job_hourly()
+                add_log("手动整点任务: " + "; ".join(r))
+                resp = {"ok": True, "result": r}
+            elif name == "mine":
+                r = mine_once()
+                if r == "OK":
+                    daily = load("daily", {})
+                    daily["mining"] = daily.get("mining", 0) + 1
+                    save("daily", daily)
+                add_log(f"手动开采: {r}")
+                resp = {"ok": True, "result": r}
+            elif name == "scan":
+                fs = job_purple_scan()
+                for f in fs:
+                    add_log("发现紫将: " + f, "success")
+                resp = {"ok": True, "result": [f"发现 {len(fs)} 个: " + "; ".join(fs) if fs else "无新发现"], "found": fs}
+            else:
+                st, hd, bd = jresp({"error": "unknown job"}, 400)
+                self._send(st, hd, bd)
+                return
+            threading.Timer(1.5, refresh_snapshot, kwargs={"force": True}).start()
+            st, hd, bd = jresp(resp)
+            self._send(st, hd, bd)
+            return
+        st, hd, bd = jresp({"error": "not found"}, 404)
+        self._send(st, hd, bd)
+
+
+def main():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    threading.Thread(target=scheduler_loop, daemon=True).start()
+    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    add_log("qjshd 服务已启动（服务器版）", "success")
+    print(f"qjshd listening on 0.0.0.0:{PORT}")
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
