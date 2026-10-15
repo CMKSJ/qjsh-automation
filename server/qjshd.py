@@ -353,14 +353,20 @@ def job_training(token):
         if not cands:
             break
         h = cands.pop(0)
-        previews = {pv.get("planCode"): int(pv.get("discardedExperience", 0)) for pv in (h.get("experiencePreviews") or [])}
-        # 时长选择：不溢出的最长档；全溢出取浪费最小；再按铜钱可负担过滤
-        order = sorted(plans.values(), key=lambda x: -x.get("durationSeconds", 0))
-        no_overflow = [pl for pl in order if previews.get(pl["planCode"], 0) == 0]
-        pool = no_overflow if no_overflow else sorted(order, key=lambda pl: previews.get(pl["planCode"], 0))
-        if copper is not None:
-            affordable = [pl for pl in pool if copper >= pl["copperCost"]]
-            pool = affordable if affordable else pool
+        # 剩余容量 R：一天总到手经验最优选档
+        try:
+            R = int(h.get("nextLevelExperience", 0)) - int(h.get("experience", 0))
+        except Exception:
+            R = 0
+        if R >= 90000:
+            wanted = ["LONG_22H", "ADVANCED_8H", "BASIC_4H"]
+        elif R >= 40000:
+            wanted = ["ADVANCED_8H", "BASIC_4H", "LONG_22H"]
+        else:
+            wanted = ["BASIC_4H", "ADVANCED_8H", "LONG_22H"]
+        pool = [plans[c] for c in wanted if c in plans and (copper is None or copper >= plans[c]["copperCost"])]
+        if not pool:
+            pool = [plans[c] for c in wanted if c in plans]
         if not pool:
             continue
         pl = pool[0]
@@ -435,7 +441,7 @@ def job_resource_harvest(token):
     return out
 
 
-def job_hourly():
+def job_hourly(active=False):
     out = []
     try:
         def do(token):
@@ -444,8 +450,13 @@ def job_hourly():
             prov = cur.get("PROVISIONS", {}).get("balance", 0)
             copper = cur.get("COPPER", {}).get("balance", 0)
             prov_cap = home["player"].get("provisionsCapacity", 22)
-            # 防溢出最小兑换 y = max(x+13-m, 0)
-            budget = max(prov + 13 - prov_cap, 0)
+            budget = 0
+            skip_reason = None
+            if not active:
+                # 防溢出最小兑换 y = max(x+13-m, 0)（玩家活跃时仅此项暂停）
+                budget = max(prov + 13 - prov_cap, 0)
+            else:
+                skip_reason = "玩家活跃中"
             plan = {}
             for t in EXCHANGE_TIERS:
                 while budget >= t:
@@ -461,7 +472,7 @@ def job_hourly():
             elif tickets > 0:
                 out.append(f"兑换跳过: 需{copper_need}铜 仅有{copper}")
             else:
-                out.append(f"兑换跳过: 粮草 {prov}/{prov_cap} 下一小时不会溢出")
+                out.append("兑换跳过: " + (skip_reason or f"粮草 {prov}/{prov_cap} 下一小时不会溢出"))
 
             market = api("GET", "/api/v1/home/market", token=token)
             if market.get("collectionStatus") == "READY":
@@ -758,7 +769,7 @@ def tick():
     except Exception:
         pass
 
-    if load("paused", False) is True or player_active:
+    if load("paused", False) is True:
         if minute % 5 == 2:
             for f in job_purple_scan():
                 add_log(f"发现紫将(暂停中仅记录): {f}", "success")
@@ -795,7 +806,7 @@ def tick():
                     save("daily", daily)
 
         if minute == 0 and str(hour) not in (daily.get("hourly") or {}):
-            r = job_hourly()
+            r = job_hourly(active=player_active)
             daily = load("daily", {})
             daily.setdefault("hourly", {})[str(hour)] = True
             save("daily", daily)
