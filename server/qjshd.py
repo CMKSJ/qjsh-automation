@@ -313,86 +313,73 @@ QUALITY_RANK = {"ORANGE": 5, "PURPLE": 4, "BLUE": 3, "GREEN": 2, "WHITE": 1}
 
 
 def job_training(token):
+    """领取完成训练；空闲槽选稀有度最高可用武将；时长=不溢出(discarded=0)的最长档，
+    全溢出选浪费最小档；铜钱不足再降档。经验在开始时即入账。"""
     out = []
     d = api("GET", "/api/v1/hero-training", token=token)
-    heroes_list = api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or []
-    hmap = {h["heroInstanceId"]: h for h in heroes_list}
-    maxed = load("maxedHeroes", [])
     claimed = False
-
-    # 1) 领取完成的训练
     for s in d.get("slots") or []:
         sess = s.get("session")
         if not sess or _parse_ts(sess.get("endsAt")) > time.time():
             continue
-        hid = sess.get("heroInstanceId")
-        before = str(hmap.get(hid, {}).get("experience"))
         try:
             api("POST", "/api/v1/hero-training/slots/" + str(s["slotNumber"]) + "/claims", token=token,
                 body={"operationId": op_id(), "expectedSlotVersion": str(s.get("version"))})
             claimed = True
-            out.append("领取训练: " + str(sess.get("heroName")))
-            try:
-                hl2 = api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or []
-                h2 = next((x for x in hl2 if x["heroInstanceId"] == hid), {})
-                if h2 and str(h2.get("experience")) == before:
-                    if hid not in maxed:
-                        maxed.append(hid)
-                        out.append(str(sess.get("heroName")) + " 经验未增长(已无法获得经验)，移出候选")
-            except Exception:
-                pass
+            out.append("领取训练: " + str(sess.get("heroName")) + " (" + str(sess.get("planCode")) + ")")
         except Exception as e:
             out.append("领取训练失败(slot" + str(s["slotNumber"]) + "): " + str(getattr(e, "code", e)))
-    if maxed != load("maxedHeroes", []):
-        save("maxedHeroes", maxed)
-
-    # 2) 空闲槽安排新训练（claim 后重新拉状态拿新版本号）
     if claimed:
         d = api("GET", "/api/v1/hero-training", token=token)
-    plans = sorted([p for p in (d.get("plans") or []) if p.get("available")],
-                   key=lambda x: -x.get("durationSeconds", 0))
-    training_ids = {s.get("session", {}).get("heroInstanceId") for s in (d.get("slots") or []) if s.get("session")}
+
+    plans = {p["planCode"]: p for p in (d.get("plans") or []) if p.get("available")}
     cands = sorted(
-        [h for h in heroes_list if h["heroInstanceId"] not in training_ids and h["heroInstanceId"] not in maxed],
-        key=lambda h: (-QUALITY_RANK.get(h.get("quality"), 0), -(h.get("star") or 0)))
+        [c for c in (d.get("candidates") or [])
+         if c.get("available") and c.get("level", 0) < c.get("maximumLevel", 999)],
+        key=lambda c: (-QUALITY_RANK.get(c.get("quality"), 0), -(c.get("star") or 0)))
     if not cands:
         if not out:
-            out.append("训练: 无可训武将")
+            out.append("训练: 无可训武将(全部训练中或满级)")
         return out
     copper = None
     try:
-        copper = api("GET", "/api/v1/home", token=token)["economy"]["currencies"]
-        copper = next(c["balance"] for c in copper if c["code"] == "COPPER")
+        cur = api("GET", "/api/v1/home", token=token)["economy"]["currencies"]
+        copper = next(c["balance"] for c in cur if c["code"] == "COPPER")
     except Exception:
-        copper = None
+        pass
     for s in d.get("slots") or []:
         if s.get("session") or not s.get("unlocked"):
             continue
         if not cands:
             break
         h = cands.pop(0)
-        started = False
-        for pl in plans:
-            if copper is not None and copper < pl["copperCost"]:
-                continue
-            try:
-                api("POST", "/api/v1/hero-training/starts", token=token, body={
-                    "operationId": op_id(), "slotNumber": s["slotNumber"],
-                    "expectedSlotVersion": str(s.get("version")),
-                    "heroInstanceId": h["heroInstanceId"], "expectedHeroVersion": str(h.get("version", "0")),
-                    "planCode": pl["planCode"], "useExperienceBonus": False})
-                if copper is not None:
-                    copper -= pl["copperCost"]
-                out.append("开始训练: " + h["name"] + "(" + h["quality"] + str(h["star"]) + "星) " + pl.get("displayName", pl["planCode"]))
-                started = True
-                break
-            except Exception as e:
-                code = getattr(e, "code", "")
-                if code in ("INSUFFICIENT_FUNDS", "CURRENCY_INSUFFICIENT"):
-                    continue
-                out.append("开始训练失败(" + h["name"] + "): " + str(code or e))
-                break
-        _ = started
+        previews = {pv.get("planCode"): int(pv.get("discardedExperience", 0)) for pv in (h.get("experiencePreviews") or [])}
+        # 时长选择：不溢出的最长档；全溢出取浪费最小；再按铜钱可负担过滤
+        order = sorted(plans.values(), key=lambda x: -x.get("durationSeconds", 0))
+        no_overflow = [pl for pl in order if previews.get(pl["planCode"], 0) == 0]
+        pool = no_overflow if no_overflow else sorted(order, key=lambda pl: previews.get(pl["planCode"], 0))
+        if copper is not None:
+            affordable = [pl for pl in pool if copper >= pl["copperCost"]]
+            pool = affordable if affordable else pool
+        if not pool:
+            continue
+        pl = pool[0]
+        try:
+            api("POST", "/api/v1/hero-training/starts", token=token, body={
+                "operationId": op_id(), "slotNumber": s["slotNumber"],
+                "expectedSlotVersion": str(s.get("version")),
+                "heroInstanceId": h["heroInstanceId"], "expectedHeroVersion": str(h.get("version", "0")),
+                "planCode": pl["planCode"], "useExperienceBonus": False})
+            if copper is not None:
+                copper -= pl["copperCost"]
+            note = ""
+            waste = previews.get(pl["planCode"], 0)
+            if waste > 0:
+                note = " (溢出浪费" + str(waste) + ")"
+            out.append("开始训练: " + h["name"] + "(" + h["quality"] + str(h["star"]) + "星 Lv" + str(h.get("level")) + ") "
+                       + pl.get("displayName", pl["planCode"]) + note)
+        except Exception as e:
+            out.append("开始训练失败(" + h["name"] + "): " + str(getattr(e, "code", e)))
     if not out:
         out.append("训练: 全部进行中")
     return out
