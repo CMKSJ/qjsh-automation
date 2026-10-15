@@ -353,20 +353,15 @@ def job_training(token):
         if not cands:
             break
         h = cands.pop(0)
-        # 剩余容量 R：一天总到手经验最优选档
-        try:
-            R = int(h.get("nextLevelExperience", 0)) - int(h.get("experience", 0))
-        except Exception:
-            R = 0
-        if R >= 90000:
-            wanted = ["LONG_22H", "ADVANCED_8H", "BASIC_4H"]
-        elif R >= 40000:
-            wanted = ["ADVANCED_8H", "BASIC_4H", "LONG_22H"]
-        else:
-            wanted = ["BASIC_4H", "ADVANCED_8H", "LONG_22H"]
-        pool = [plans[c] for c in wanted if c in plans and (copper is None or copper >= plans[c]["copperCost"])]
-        if not pool:
-            pool = [plans[c] for c in wanted if c in plans]
+        # 服务器 discardedExperience 已按"经验沿等级结转、满级截断浪费"算好：
+        # 选零浪费的最长档（22h→8h→4h）；全溢出(近满级)取浪费最小；铜钱不够再降档
+        previews = {pv.get("planCode"): int(pv.get("discardedExperience", 0)) for pv in (h.get("experiencePreviews") or [])}
+        order = sorted(plans.values(), key=lambda x: -x.get("durationSeconds", 0))
+        zero = [pl for pl in order if previews.get(pl["planCode"], 0) == 0]
+        pool = zero if zero else sorted(order, key=lambda pl: previews.get(pl["planCode"], 0))
+        affordable = [pl for pl in pool if copper is None or copper >= pl["copperCost"]]
+        if affordable:
+            pool = affordable
         if not pool:
             continue
         pl = pool[0]
