@@ -25,6 +25,8 @@ th{color:var(--dim);font-weight:500;font-size:12px}
 .st-ALIVE{color:var(--ok)}.st-GONE{color:var(--dim)}.st-GRABBED{color:var(--acc)}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+button.soft{background:rgba(79,140,255,.13);border:1px solid rgba(79,140,255,.45);color:#8ab4ff}
+button.soft:active{background:rgba(79,140,255,.28)}
 button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .cd{font-variant-numeric:tabular-nums;color:var(--warn)}
@@ -50,12 +52,12 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
 <div class="card"><h2>今日任务</h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
-    <button class="ghost" onclick="job('signin')">立即签到</button>
-    <button class="ghost" onclick="job('hourly')">立即整点任务</button>
-    <button class="ghost" onclick="job('mine')">开采一次</button>
-    <button id="pauser" class="ghost" onclick="togglePause()">暂停自动化</button>
+    <button class="soft" onclick="job('signin')">立即签到</button>
+    <button class="soft" onclick="job('hourly')">立即整点任务</button>
+    <button class="soft" onclick="job('mine')">开采一次</button>
+    <button id="pauser" class="soft" onclick="togglePause()">暂停自动化</button>
   </div></div>
-<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button class="ghost" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">扫描</button></h2>
+<div class="card"><h2>紫将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button class="ghost" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
@@ -100,8 +102,9 @@ async function render(){
     $('hserver').textContent=(s.state?.serverId||'')+(act.active?' · 🟢玩家活跃(自动暂停中)':' · ⚪玩家离线(自动运行)');
     window.__paused=!!s.paused;
     $('pauser').textContent=window.__paused?'▶ 恢复自动化':'暂停自动化';
-    $('pauser').style.borderColor=window.__paused?'var(--err)':'var(--line)';
+    $('pauser').style.borderColor=window.__paused?'var(--err)':'';
     $('pauser').style.color=window.__paused?'var(--err)':'';
+    $('pauser').style.background=window.__paused?'rgba(229,100,108,.13)':'';
     $('herocap').textContent=window.__cap?('武将 '+window.__cap.owned+'/'+window.__cap.capacity+(window.__cap.owned>=window.__cap.capacity?' (满)':'')):'';
     $('daily').innerHTML=[
       ['签到',d.signin?'✓ 已完成':'待 00:01'],
