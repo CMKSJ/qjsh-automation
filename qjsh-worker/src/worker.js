@@ -89,7 +89,7 @@ async function withSession(env, fn) {
   try {
     return await fn(token);
   } catch (e) {
-    if (e.code === "SESSION_EXPIRED" || e.status === 401) {
+    if (e.code === "SESSION_EXPIRED" || e.code === "SESSION_REPLACED" || e.status === 401) {
       await save(env, "token", {});  // 清除失效 token
       await addLog(env, "accessToken 已失效（手机端重新进过游戏？）——请重新点书签上报", "warn");
     }
@@ -481,7 +481,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 const KEY='';
 const ORIGIN=location.origin;
 const $=id=>document.getElementById(id);
-const BM='javascript:(function(){var W=\\''+ORIGIN+'\\',K=\\''+KEY+'\\';if(window.__qjsh)return alert(\\'监听已开启，请在游戏里点任意操作\\');window.__qjsh=1;var F=window.fetch,X=XMLHttpRequest.prototype.open,S=XMLHttpRequest.prototype.setRequestHeader;function up(t){try{navigator.sendBeacon(W+\\'/api/report-token\\',JSON.stringify({token:t}))}catch(e){}window.fetch=F;XMLHttpRequest.prototype.setRequestHeader=S;XMLHttpRequest.prototype.open=X}window.fetch=function(i,o){try{var h=(o&&o.headers)||(i&&i.headers),a=h&&(h.Authorization||(h.get&&h.get(\\'Authorization\\')));if(a)up(String(a).replace(\\'Bearer \\',\\'\\'))}catch(e){}return F.apply(this,arguments)};XMLHttpRequest.prototype.open=function(){return X.apply(this,arguments)};XMLHttpRequest.prototype.setRequestHeader=function(k,v){try{if(String(k).toLowerCase()==\\'authorization\\'&&v)up(String(v).replace(\\'Bearer \\',\\'\\'))}catch(e){}return S.apply(this,arguments)};alert(\\'监听已开启：在游戏里点击任意操作（或等几秒），token 会自动上报\\')})()';
+const BM='javascript:(function(){var W=\\''+ORIGIN+'\\';function arm(){window.__qjsh=1;var F=window.fetch,X=XMLHttpRequest.prototype.open,S=XMLHttpRequest.prototype.setRequestHeader;function ok(t){try{navigator.sendBeacon(W+\\'/api/report-token\\',JSON.stringify({token:t}))}catch(e){}window.fetch=F;XMLHttpRequest.prototype.setRequestHeader=S;XMLHttpRequest.prototype.open=X;window.__qjsh=2}window.fetch=function(i,o){try{var u=\\'\\'+(i&&i.url||i);var h=(o&&o.headers)||(i&&i.headers),a=h&&(h.Authorization||(h.get&&h.get(\\'Authorization\\')));if(a&&u.indexOf(\\'/auth/\\')<0)ok(String(a).replace(\\'Bearer \\',\\'\\'))}catch(e){}return F.apply(this,arguments)};XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return X.apply(this,arguments)};XMLHttpRequest.prototype.setRequestHeader=function(k,v){try{if(String(k).toLowerCase()==\\'authorization\\'&&v&&(\\'\\'+this.__u).indexOf(\\'/auth/\\')<0)ok(String(v).replace(\\'Bearer \\',\\'\\'))}catch(e){}return S.apply(this,arguments)}}if(window.__qjsh===1)return alert(\\'监听已开启，请在游戏里点任意操作\\');arm();alert(\\'监听已开启：在游戏里点击任意操作（或等几秒），token 会自动上报\\')})()';
 async function req(path,opts={}){const r=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}});return r.json()}
 function copyBM(){var t=$('bmcode').textContent||BM;function ok(){alert('已复制！去浏览器「添加书签」，把网址替换为这段代码（名称随意）')}function fb(){var ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,t.length);var s=false;try{s=document.execCommand('copy')}catch(e){}document.body.removeChild(ta);s?ok():prompt('复制失败，请长按下面文本框手动复制:',t)}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,fb)}else{fb()}}
 const CUR={COPPER:'铜钱',YUANBAO:'元宝',SILVER_TICKET:'银票',PROVISIONS:'粮草',BATTLE_ACHIEVEMENT:'战功'};
@@ -529,10 +529,7 @@ async function render(){
 }
 async function res(k){await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
 async function grab(k){await req('grab',{method:'POST',body:JSON.stringify({key:k})});render()}
-async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('
-'):(''+res);if(r.found&&r.found.length)txt+='
-'+r.found.join('
-');alert(txt||'已执行');setTimeout(render,800)}
+async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\\n'):(''+res);if(r.found&&r.found.length)txt+='\\n'+r.found.join('\\n');alert(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
 </script></body></html>`;
 
@@ -566,7 +563,7 @@ async function handleApi(request, env) {
       });
       await addLog(env, `accessToken 已上报 ✓ ${home.player.displayName} Lv${home.player.level}（书签）`, "success");
     } catch (e) {
-      if (e.code === "SESSION_EXPIRED" || e.status === 401) {
+      if (e.code === "SESSION_EXPIRED" || e.code === "SESSION_REPLACED" || e.status === 401) {
         await save(env, "token", {});
         await addLog(env, "上报的 token 无效——请确认游戏已进入（过了登录页）再点书签", "error");
         return json({ ok: false, error: "invalid token" }, 400);
