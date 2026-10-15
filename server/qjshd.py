@@ -724,14 +724,19 @@ class Handler(BaseHTTPRequestHandler):
         sec = get_secret()
         base = "/" + sec
         # 上报接口：原路径但必须带中继密钥头；面板 API：混淆路径下
-        if u.path == "/api/report-token":
+        via_url = u.path == f"/r/{sec}"
+        if via_url:
+            pass  # 密钥在 URL 的上报路径（中继直连用），route 归一化见下
+        elif u.path == "/api/report-token":
+            got_key = repr(self.headers.get("X-Relay-Key"))
+            add_log(f"[诊断] 上报到达(header密钥={got_key[:26]})", "info")
             if self.headers.get("X-Relay-Key") != sec:
                 self._send(404, {"Content-Type": "text/html"}, NGINX_404)
                 return
         elif not u.path.startswith(base + "/api/"):
             self._send(404, {"Content-Type": "text/html"}, NGINX_404)
             return
-        route = u.path[len(base):] if u.path.startswith(base) else u.path
+        route = "/api/report-token" if via_url else (u.path[len(base):] if u.path.startswith(base) else u.path)
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length).decode()) if length else {}
