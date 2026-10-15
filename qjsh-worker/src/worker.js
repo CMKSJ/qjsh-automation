@@ -64,6 +64,10 @@ async function readToken(env) {
 
 async function reportToken(env, token) {
   // accessToken 有效期 7 天（enter 响应 expiresAt）；这里保守按 6 天
+  // 重置活跃基线：token 失效期间基线是旧的，恢复后首次对比必然误报
+  const act = await load(env, "activity", {});
+  act.fingerprint = undefined;
+  await save(env, "activity", act);
   await save(env, "token", {
     token, reportedAt: new Date().toISOString(),
     expiresAt: Date.now() + 6 * 86400_000,
@@ -91,6 +95,9 @@ async function withSession(env, fn) {
   } catch (e) {
     if (e.code === "SESSION_EXPIRED" || e.code === "SESSION_REPLACED" || e.status === 401) {
       await save(env, "token", {});  // 清除失效 token
+      const act0 = await load(env, "activity", {});
+      act0.fingerprint = undefined;
+      await save(env, "activity", act0);
       await addLog(env, "accessToken 已失效（手机端重新进过游戏？）——请重新点书签上报", "warn");
     }
     throw e;
@@ -164,17 +171,16 @@ async function mineOnce(env) {
 }
 
 // 玩家活跃检测：操作版本指纹（排除被动变化：粮草恢复、市场/租金累积不进版本号）
-const ACTIVITY_TIMEOUT_MS = 10 * 60_000;   // 10 分钟无操作 = 判定下线
+const ACTIVITY_TIMEOUT_MS = 10 * 60_000;
+const FP_NAMES = ["progress", "copper", "yuanbao", "ticket"];  // 仅玩家主动操作字段（market=征收兑换也可能被好友代缴? 保守去掉; mining/occupation/battle 有被动来源）   // 10 分钟无操作 = 判定下线
 const SELF_ACTION_GRACE_MS = 2 * 60_000;   // Worker 自己写操作后的宽限
 
 function activityFingerprint(home) {
   const v = (code) => home.economy.currencies.find(c => c.code === code)?.version ?? 0;
+  // 仅纯主动字段：进度/铜钱/元宝/银票。矿山与驻守版本有外部互动来源（好友参观、被攻击），剔除
   return [
     home.player.progressVersion,
-    v("COPPER"), v("YUANBAO"), v("SILVER_TICKET"), v("BATTLE_ACHIEVEMENT"),
-    home.mining?.version ?? 0,
-    home.occupation?.version ?? 0,
-    home.marketCollection?.version ?? 0,
+    v("COPPER"), v("YUANBAO"), v("SILVER_TICKET"),
   ].join("|");
 }
 
@@ -186,10 +192,11 @@ async function trackActivity(env, home) {
   const prev = st.fingerprint;
   st.fingerprint = fp;
   if (prev !== undefined && prev !== fp) {
+    const diff = prev.split("|").map((v, i) => v !== fp.split("|")[i] ? FP_NAMES[i] : null).filter(Boolean);
     // Worker 自己写操作后的宽限期内变化不计
     if (!st.lastSelfActionAt || now - st.lastSelfActionAt > SELF_ACTION_GRACE_MS) {
       if (!st.lastActiveAt || now - st.lastActiveAt > ACTIVITY_TIMEOUT_MS) {
-        await addLog(env, "检测到玩家活跃（手机操作中），自动暂停消耗性任务", "warn");
+        await addLog(env, `检测到玩家活跃（变化字段: ${diff.join(",")}），自动暂停消耗性任务`, "warn");
       }
       st.lastActiveAt = now;
     }
@@ -326,6 +333,7 @@ async function jobPurpleScan(env) {
           const t = await api("GET", `/api/v1/friend-cities/${pid}/tavern`, { token });
           const cand = (t.candidates || []).find(c => c.name === a.hero && PURPLE_PLUS.includes(c.quality));
           if (cand) {
+            const isNew = !heroes[key] || heroes[key].status !== "ALIVE";
             heroes[key] = {
               ...heroes[key],  // 保留 reserved 等字段
               key, playerId: pid, owner: a.owner, ownerLevel: pcache[a.owner].level,
@@ -335,7 +343,7 @@ async function jobPurpleScan(env) {
               foundAt: a.at, protectionEndsAt: t.protectionEndsAt,
               lastSeenAt: new Date().toISOString(), status: "ALIVE",
             };
-            found.push(`${a.owner}家 ${a.hero}(${cand.quality}${cand.star}星)`);
+            if (isNew) found.push(`${a.owner}家 ${a.hero}(${cand.quality}${cand.star}星)`);
           } else if (heroes[key]?.status === "ALIVE") {
             delete heroes[key];
           }
