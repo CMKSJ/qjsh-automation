@@ -465,7 +465,12 @@ def job_purple_scan():
                                            "protectionEndsAt": t.get("protectionEndsAt"), "lastSeenAt": datetime.now(timezone.utc).isoformat(),
                                            "status": "ALIVE"}
                             if is_new:
-                                found.append(f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)")
+                                label = f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)"
+                                found.append(label)
+                                if (cand["star"] or 0) >= 5:
+                                    heroes[key]["reserved"] = True
+                                    heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
+                                    add_log(f"⭐ 五星目标自动预约: {label}", "success")
                         elif heroes.get(key, {}).get("status") == "ALIVE":
                             heroes[key]["status"] = "GONE"
                             heroes[key]["goneAt"] = datetime.now(timezone.utc).isoformat()
@@ -783,11 +788,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}, _PAGE.encode())
             return
         if u.path == base + "/api/status":
-            try:
-                if time.time() - _parse_ts(load("snapshot", {}).get("at")) > 90:
-                    threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
-            except Exception:
-                pass
             with LOCK:
                 data = {
                     "token": {k: v for k, v in load("token", {}).items() if k != "token"},
