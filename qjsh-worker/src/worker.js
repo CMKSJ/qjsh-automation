@@ -492,20 +492,23 @@ const inflight=new Set();
 async function render(){
   try{
     const s=await req('status');
-    const hasTok=!!(s.token&&s.token.token);
+    const hasTok=!!(s.token&&s.token.hasToken);
     $('tokbanner').hidden=hasTok;
     if(!hasTok)$('bmcode').textContent=BM;
     $('hserver').textContent=hasTok?('token '+fmtBJ(s.token.reportedAt)+' 上报'):'';
     $('hdot').style.background=hasTok?'var(--ok)':'var(--err)';
     if(s.snapshot?.player){const p=s.snapshot.player;$('player').innerHTML='<b>'+p.displayName+'</b> Lv'+p.level+' · 战力 '+fmt(p.combatPower||0)}else if(s.token&&s.token.token){$('player').textContent='token 已生效，账号数据将在整点任务时刷新'}
-    $('cur').innerHTML=(s.snapshot?.currencies||[]).map(c=>'<span>'+(CUR[c.code]||c.code)+' <b>'+fmt(c.balance)+'</b></span>').join('');
+    $('cur').innerHTML=(s.snapshot?.currencies||[]).filter(c=>c.code!=='PROVISIONS').map(c=>'<span>'+(CUR[c.code]||c.code)+' <b>'+fmt(c.balance)+'</b></span>').join('');
     const d=s.daily||{signin:false,mining:0,hourly:{}};
     const hrs=Object.keys(d.hourly||{}).length;
+    const provC=(s.snapshot?.currencies||[]).find(c=>c.code==='PROVISIONS');
+    const provNow=provC?provC.balance:'-';
+    const provCap=s.snapshot?.player?.provisionsCapacity??'-';
     $('daily').innerHTML=[
       ['签到',d.signin?'✓ 已完成':'待 00:01'],
       ['矿山',d.mining+'/10 次'],
       ['整点任务',hrs+' 次'],
-      ['accessToken',hasTok?'✓ 已上报':'✗ 未上报'],
+      ['粮草',provNow+'/'+provCap],
     ].map(([k,v])=>'<div class="kv"><span>'+k+'</span><b>'+v+'</b></div>').join('');
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date()&&!inflight.has(h.key)){
@@ -526,7 +529,10 @@ async function render(){
 }
 async function res(k){await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
 async function grab(k){await req('grab',{method:'POST',body:JSON.stringify({key:k})});render()}
-async function job(n){await req('job',{method:'POST',body:JSON.stringify({name:n})});setTimeout(render,800)}
+async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('
+'):(''+res);if(r.found&&r.found.length)txt+='
+'+r.found.join('
+');alert(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
 </script></body></html>`;
 
@@ -576,6 +582,7 @@ async function handleApi(request, env) {
       load(env, "purpleHeroes", {}), load(env, "log", []), load(env, "snapshot", {}),
     ]);
     const { token: tok, ...tokenSafe } = token;  // 不向页面暴露凭据
+    tokenSafe.hasToken = !!tok;
     return json({ token: tokenSafe, daily, heroes, log, snapshot });
   }
   if (route === "reserve" && request.method === "POST") {
