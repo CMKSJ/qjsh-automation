@@ -436,7 +436,23 @@ async function grabHero(env, key, manual = false) {
         // 回退：刷新卡池再试一次（版本过期/卡池刷新的情况）
         const t = await api("GET", `/api/v1/friend-cities/${h.playerId}/tavern`, { token });
         const cand = (t.candidates || []).find(c => c.name === h.hero && c.quality === h.quality);
-        if (!cand) throw Object.assign(new Error("武将已不在卡池"), { code: "GONE" });
+        if (!cand) {
+          // 网络掩盖检查：POST 可能实际成功（响应丢失），查自己近 5 分钟获得的同名武将
+          try {
+            const mine = await api("GET", "/api/v1/heroes?limit=50", { token });
+            const got = (mine.heroes || []).find(x => x.name === h.hero &&
+              x.obtainedAt && Date.now() - Date.parse(x.obtainedAt) < 5 * 60_000);
+            if (got) {
+              h.status = "GRABBED";
+              h.grabbedAt = got.obtainedAt;
+              heroes[key] = h; await save(env, "purpleHeroes", heroes);
+              await markSelfAction(env);
+              await addLog(env, `🎉 抢购实际成功(响应丢失延迟确认): ${h.owner}家 ${h.hero}(${h.quality}${h.star}星)`, "success");
+              return { ok: true, msg: `已抢到 ${h.hero}` };
+            }
+          } catch (e2) { /* 检查失败按 GONE 处理 */ }
+          throw Object.assign(new Error("武将已不在卡池"), { code: "GONE" });
+        }
         h.candidateId = cand.candidateId;
         h.candidateVersion = cand.version;
         await api("POST", `/api/v1/friend-cities/${h.playerId}/tavern/recruitments`, {
