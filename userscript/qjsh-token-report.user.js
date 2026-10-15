@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Q将水浒 · token 自动上报
 // @namespace    qjsh-automation
-// @version      1.3
+// @version      1.4
 // @description  游戏页面自动捕获 accessToken 并上报到自动化面板。右下角徽标：灰=待捕获 橙=上报中 绿=确认后4秒消失 红=失败常显(含原因)
 // @match        https://qjsh.top/*
 // @match        https://*.qjsh.top/*
@@ -40,10 +40,13 @@
       headers: { "Content-Type": "text/plain;charset=UTF-8" },
       body: JSON.stringify({ token: token }),
     }).then(function (r) {
-      return r.json().catch(function () { return {}; });
+      return r.text().then(function (t) {
+        var d; try { d = JSON.parse(t) } catch (e) { d = { __status: r.status, __raw: t } }
+        return d;
+      });
     }).then(function (d) {
       if (d && d.ok) setStatus("已上报✓", "#2a7", true);
-      else setStatus("服务器拒绝:" + (d && d.error || d && d.msg || "未知"), "#a22");
+      else setStatus("服务器拒绝:" + (d.error || ("HTTP" + d.__status + ":" + String(d.__raw || "").slice(0, 70))), "#a22");
     }).catch(function (e) {
       setStatus("上报失败:网络到workers.dev不通(需代理或自定义域名)", "#a22");
       console.error("[qjsh] 上报失败:", e);

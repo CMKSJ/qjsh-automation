@@ -76,6 +76,7 @@ const CUR={COPPER:'铜钱',YUANBAO:'元宝',SILVER_TICKET:'银票',PROVISIONS:'�
 function fmt(n){return (+n).toLocaleString('zh-CN')}
 function fmtBJ(iso){var d=new Date(iso);if(isNaN(d))return '';d=new Date(d.getTime()+8*3600e3);var p=x=>String(x).padStart(2,'0');return p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
 function cd(iso){const s=Math.floor((new Date(iso)-Date.now())/1000);return s>0?Math.floor(s/60)+'分'+String(s%60).padStart(2,'0')+'秒':'已结束'}
+setInterval(function(){document.querySelectorAll('.cd[data-until]').forEach(function(e){e.textContent=cd(e.getAttribute('data-until'))})},1000);
 const inflight=new Set();
 let knownHeroKeys=null;
 async function render(){
@@ -129,7 +130,16 @@ async function render(){
         }
       }
     }
-    const hs=Object.values(s.heroes||{});
+    const GRP={GRABBED:0,GONE:1,ALIVE:2};
+    const hs=Object.values(s.heroes||{}).map(h=>{h.__exp=h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date();return h}).sort(function(a,b){
+      const ga=a.__exp||a.status!=='ALIVE'?GRP[a.status]||3:3,gb=b.__exp||b.status!=='ALIVE'?GRP[b.status]||3:3;
+      const rank=function(h){return h.status==='ALIVE'?(h.__exp?GRP.ALIVE:3):GRP[h.status]};
+      const ra=rank(a),rb=rank(b);
+      if(ra!==rb)return ra-rb;
+      if(ra===3)return new Date(a.protectionEndsAt)-new Date(b.protectionEndsAt);
+      const qa=a.quality==='ORANGE'?1:0,qb=b.quality==='ORANGE'?1:0;
+      return qb-qa||b.star-a.star;
+    });
     const liveKeys=hs.filter(h=>h.status==='ALIVE').map(h=>h.key);
     if(knownHeroKeys===null){knownHeroKeys=new Set(liveKeys)}
     else{
@@ -145,8 +155,8 @@ async function render(){
           ?'<button class="ghost" onclick="res(\''+k+'\')">取消</button> <button class="warn" onclick="grab(\''+k+'\')">抢购</button>'
           :expired?'<button class="warn" onclick="grab(\''+k+'\')">抢购</button>'
           :'<button onclick="res(\''+k+'\')">预约</button>';
-        const cdtxt=h.status==='ALIVE'?'<span class="cd">'+cd(h.protectionEndsAt)+'</span>':'—';
-        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':'')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
+        const cdtxt=h.status==='ALIVE'?'<span class="cd" data-until="'+h.protectionEndsAt+'">'+cd(h.protectionEndsAt)+'</span>':'—';
+        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+(h.status==='GRABBED'?(h.paidCopper!=null?fmt(h.paidCopper)+'铜'+(h.paidTicket?'+'+h.paidTicket+'票':''):'—'):(h.copperCost!=null?fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':''):'—'))+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
       :'<p class="muted">暂无监控目标</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}

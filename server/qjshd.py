@@ -459,8 +459,11 @@ def grab_hero(key, manual=False):
     def do(token):
         # 快路径：直接 POST；失败回退刷新
         try:
-            api("POST", f"/api/v1/friend-cities/{h['playerId']}/tavern/recruitments", token=token,
+            r0 = api("POST", f"/api/v1/friend-cities/{h['playerId']}/tavern/recruitments", token=token,
                 body={"operationId": op_id(), "candidateId": h["candidateId"], "expectedCandidateVersion": h.get("candidateVersion", 0)})
+            if isinstance(r0, dict):
+                h["_paidCopper"] = r0.get("copperCost")
+                h["_paidTicket"] = r0.get("silverTicketCost")
         except ApiError:
             t = api("GET", f"/api/v1/friend-cities/{h['playerId']}/tavern", token=token)
             cand = next((c for c in t.get("candidates", []) if c["name"] == h["hero"] and c["quality"] == h.get("quality")), None)
@@ -497,7 +500,11 @@ def grab_hero(key, manual=False):
         with LOCK:
             heroes = load("purpleHeroes", {})
             if key in heroes:
-                heroes[key].update({"status": "GRABBED", "grabbedAt": h.get("grabbedAt") or datetime.now(timezone.utc).isoformat()})
+                upd = {"status": "GRABBED", "grabbedAt": h.get("grabbedAt") or datetime.now(timezone.utc).isoformat()}
+                if h.get("_paidCopper") is not None:
+                    upd["paidCopper"] = h["_paidCopper"]
+                    upd["paidTicket"] = h.get("_paidTicket") or 0
+                heroes[key].update(upd)
                 save("purpleHeroes", heroes)
         mark_self_action()
         add_log(f"🎉 抢购成功: {h['owner']}家 {h['hero']}({h['quality']}{h['star']}星)", "success")
@@ -726,7 +733,8 @@ class Handler(BaseHTTPRequestHandler):
         # 上报接口：原路径但必须带中继密钥头；面板 API：混淆路径下
         via_url = u.path == f"/r/{sec}"
         if via_url:
-            pass  # 密钥在 URL 的上报路径（中继直连用），route 归一化见下
+            add_log("[诊断] 上报到达(URL密钥路径)", "info")
+            pass  # route 归一化见下
         elif u.path == "/api/report-token":
             got_key = repr(self.headers.get("X-Relay-Key"))
             add_log(f"[诊断] 上报到达(header密钥={got_key[:26]})", "info")
