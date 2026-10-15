@@ -185,12 +185,33 @@ def write_snapshot(token, home, force=False):
         hero_capacity = {"capacity": t.get("heroCapacity"), "owned": t.get("ownedHeroCount"), "remaining": t.get("remainingHeroCapacity")}
     except Exception:
         pass
+    territory = resources = None
+    try:
+        t = api("GET", "/api/v1/territory/cities", token=token)
+        territory = {"cities": len([c for c in (t.get("cities") or []) if c.get("controlledBySubject")]), "slots": t.get("territorySlots", 0)}
+    except Exception:
+        pass
+    try:
+        r = api("GET", "/api/v1/resource-occupations", token=token)
+        slots = 2
+        try:
+            tr = api("GET", "/api/v1/territory/resources", token=token)
+            slots = len([s for s in (tr.get("slots") or []) if s.get("unlocked")]) or 2
+        except Exception:
+            pass
+        occs = r.get("occupations") or []
+        nxt = min((_parse_ts(o.get("occupiedAt")) + 8 * 3600 - time.time() for o in occs), default=None)
+        resources = {"occupied": len(occs), "slots": slots, "nextHarvestIn": (round(nxt) if nxt is not None else None)}
+    except Exception:
+        pass
     snap = {
         "at": datetime.now(timezone.utc).isoformat(),
         "player": {k: home["player"].get(k) for k in ("displayName", "level", "combatPower", "provisionsCapacity")},
         "currencies": home["economy"]["currencies"],
         "mining": home.get("mining"),
         "heroCapacity": hero_capacity,
+        "territory": territory,
+        "resources": resources,
     }
     with LOCK:
         if not force and time.time() - _snap_last_write < SNAP_WRITE_THROTTLE_S:
@@ -285,6 +306,63 @@ def mine_once():
         raise
 
 
+def _parse_ts(iso):
+    try:
+        return datetime.fromisoformat((iso or "").replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def job_territory_income(token):
+    """领地城市驻守铜钱：readyAt 已过/有铜 -> income-collections"""
+    out = []
+    try:
+        t = api("GET", "/api/v1/territory/cities", token=token)
+        got = 0
+        for c in (t.get("cities") or []):
+            if not c.get("controlledBySubject"):
+                continue
+            try:
+                detail = api("GET", "/api/v1/cities/" + c["ownerPlayerId"], token=token)
+                oid = detail.get("occupationId")
+                if not oid:
+                    continue
+                inc = api("GET", "/api/v1/city-occupations/" + oid + "/income", token=token)
+                g = inc.get("garrison") or {}
+                if g.get("availableCopper", 0) > 0 and (g.get("status") == "READY" or _parse_ts(g.get("readyAt")) <= time.time()):
+                    api("POST", "/api/v1/city-occupations/" + oid + "/income-collections", token=token,
+                        body={"operationId": op_id(), "expectedVersion": inc.get("incomeVersion", "0")})
+                    got += 1
+            except Exception:
+                pass
+        out.append(("领地铜钱: 收取" + str(got) + "座") if got else "领地铜钱: 未到收取时间")
+    except Exception as e:
+        out.append("领地铜钱失败: " + str(getattr(e, "code", e)))
+    return out
+
+
+def job_resource_harvest(token):
+    """占领资源点：占领超 8h 收获"""
+    out = []
+    try:
+        d = api("GET", "/api/v1/resource-occupations", token=token)
+        got, waiting = 0, 0
+        for o in (d.get("occupations") or []):
+            if time.time() - _parse_ts(o.get("occupiedAt")) < 8 * 3600:
+                waiting += 1
+                continue
+            try:
+                api("POST", "/api/v1/resource-occupations/" + o["occupationId"] + "/harvests", token=token,
+                    body={"operationId": op_id(), "expectedVersion": str(o.get("occupationVersion", "0")), "heroInstanceId": None})
+                got += 1
+            except Exception:
+                pass
+        out.append(("资源点收获: " + str(got) + "个") if got else ("资源点收获: 未到8h (" + str(waiting) + "个占领中)"))
+    except Exception as e:
+        out.append("资源点收获失败: " + str(getattr(e, "code", e)))
+    return out
+
+
 def job_hourly():
     out = []
     try:
@@ -328,6 +406,9 @@ def job_hourly():
                 out.append("收租 ✓")
             else:
                 out.append("收租: 未驻守或无可收")
+
+            out.extend(job_territory_income(token))
+            out.extend(job_resource_harvest(token))
 
             write_snapshot(token, home, force=True)
         with_session(do)
@@ -422,13 +503,6 @@ def job_purple_scan():
         if e.code != "NO_TOKEN":
             add_log(f"紫将扫描失败: {e.code}", "error")
     return found
-
-
-def _parse_ts(iso):
-    try:
-        return datetime.fromisoformat((iso or "").replace("Z", "+00:00")).timestamp()
-    except Exception:
-        return 0.0
 
 
 def grab_hero(key, manual=False):
@@ -709,6 +783,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}, _PAGE.encode())
             return
         if u.path == base + "/api/status":
+            try:
+                if time.time() - _parse_ts(load("snapshot", {}).get("at")) > 90:
+                    threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+            except Exception:
+                pass
             with LOCK:
                 data = {
                     "token": {k: v for k, v in load("token", {}).items() if k != "token"},
