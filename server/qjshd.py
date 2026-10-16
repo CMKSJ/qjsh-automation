@@ -252,7 +252,7 @@ def write_snapshot(token, home, force=False):
     returning = [e for e in marching if e.get("state") != "OUTBOUND"]
     slots = territory["slots"] if territory else 2
     nxt = min((_parse_ts(e.get("occurredAt")) + 8 * 3600 - time.time() for e in garrisoned), default=None)
-    resources = {"occupied": len(garrisoned) + len(outbound), "slots": slots,
+    resources = {"occupied": len(garrisoned), "slots": slots,
                  "nextHarvestIn": (round(nxt) if nxt is not None else None),
                  "garrisons": [
                      {"hero": e.get("heroName"), "type": e.get("targetResourceType"),
