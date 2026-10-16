@@ -109,7 +109,7 @@ async function render(){
     window.__soul=s.soulFactory===true;
     $('soulbtn').style.color=window.__soul?'var(--ok)':'var(--dim)';
     $('soulbtn').style.borderColor=window.__soul?'rgba(63,185,111,.45)':'';
-    $('soulbtn').title=window.__soul?'将魂工厂运行中，点击���闭':'将魂工厂已关，点击开启';
+    $('soulbtn').title=window.__soul?'将魂工厂运行中，点击关闭':'将魂工厂已关闭，点击开启';
     $('runstate').textContent=window.__paused?'已暂停':'运行中';
     $('runstate').style.color=window.__paused?'var(--err)':'var(--ok)';
     $('pauser').title=window.__paused?'已暂停，点击恢复运行':'运行中，点击暂停';
