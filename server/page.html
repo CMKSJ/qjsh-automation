@@ -167,7 +167,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
       if(ra!==rb)return ra-rb;
       if(ra===3)return new Date(a.protectionEndsAt)-new Date(b.protectionEndsAt);
       const qa=a.quality==='ORANGE'?1:0,qb=b.quality==='ORANGE'?1:0;
-      return qb-qa||b.star-a.star;
+      return qb-qa||a.star-b.star;
     });
     const liveKeys=hs.filter(h=>h.status==='ALIVE').map(h=>h.key);
     if(knownHeroKeys===null){knownHeroKeys=new Set(liveKeys)}
