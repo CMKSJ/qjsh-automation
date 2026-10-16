@@ -284,7 +284,11 @@ def write_snapshot(token, home, force=False):
 
     with LOCK:
         if not force and time.time() - _snap_last_write < SNAP_WRITE_THROTTLE_S:
-            return
+            old = load("snapshot", {})
+            changed = (json.dumps(old.get("resources"), sort_keys=True) != json.dumps(resources, sort_keys=True)
+                       or json.dumps(old.get("training"), sort_keys=True) != json.dumps(snap.get("training"), sort_keys=True))
+            if not changed:
+                return
         _snap_last_write = time.time()
         save("snapshot", snap)
 
@@ -909,7 +913,7 @@ def check_resource_timers():
         if th and th.is_alive():
             continue
         wait = _parse_ts(e.get("arrivesAt")) + 2 - time.time()
-        if wait > 90 or wait < -3600:
+        if wait > 90 or wait < -120:
             continue
         def ffire(w=wait):
             time.sleep(max(0, w))
@@ -989,6 +993,8 @@ def tick():
     except Exception:
         pass
 
+    check_training_timers()
+    check_resource_timers()
     if load("paused", False) is True:
         if minute % 5 == 2:
             for f in job_purple_scan():
@@ -1036,8 +1042,6 @@ def tick():
             for f in job_purple_scan():
                 add_log(f"发现紫将: {f}", "success")
 
-        check_training_timers()
-        check_resource_timers()
         check_reservations()
     except Exception as e:
         add_log(f"调度异常: {e}", "error")
