@@ -26,6 +26,7 @@ th{color:var(--dim);font-weight:500;font-size:12px}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
 button.soft{background:rgba(79,140,255,.13);border:1px solid rgba(79,140,255,.45);color:#8ab4ff}
+a.miniact{text-decoration:none;color:#8ab4ff;background:rgba(79,140,255,.13);border:1px solid rgba(79,140,255,.45);border-radius:6px;padding:1px 6px;font-size:11px;cursor:pointer;margin-left:4px}
 button.soft:active{background:rgba(79,140,255,.28)}
 button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -111,9 +112,9 @@ async function render(){
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
     const xy=(x,y,fr)=>'<span style="color:'+(x>=y?(fr?'var(--err)':'var(--acc)'):'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
     let dh='';
-    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a class="miniact" href="javascript:job(\'signin\')">立即签到</a>')+'</b></div>';
-    dh+='<div class="kv"><span>矿山'+(d.mining<10?' <a class="miniact" href="javascript:job(\'mine\')">开采</a>':'')+'</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10</b></div>';
-    dh+='<div class="kv"><span>整点任务 <a class="miniact" href="javascript:job(\'hourly\')">立即执行</a></span><b>'+hrs+' 次</b></div>';
+    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a class="miniact" onclick="job(\'signin\')">立即签到</a>')+'</b></div>';
+    dh+='<div class="kv"><span>矿山'+(d.mining<10?' <a class="miniact" onclick="job(\'mine\')">开采</a>':'')+'</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10</b></div>';
+    dh+='<div class="kv"><span>整点任务 <a class="miniact" onclick="job(\'hourly\')">立即执行</a></span><b>'+hrs+' 次</b></div>';
     dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap,true)+'</b></div>';
     dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
