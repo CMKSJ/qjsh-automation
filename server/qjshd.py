@@ -946,6 +946,8 @@ def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
                 if attempt < 2:
                     time.sleep(20)  # 到家落位可能延迟，20s 后重试
         add_log(f"重派失败({hero_name}): {last}", "error")
+    except Exception as e:
+        add_log(f"重派异常({hero_name}): {e}", "error")
 
 
 def check_resource_timers():
