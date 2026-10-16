@@ -112,6 +112,7 @@ async function render(){
     $('autores').style.background=window.__autoReserve?'rgba(63,185,111,.13)':'rgba(229,100,108,.13)';
     $('autores').title=window.__autoReserve?'自动预约中，点击暂停收购':'已暂停收购，点击恢复自动预约';
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
+    const RN={FOREST:'森林',SWAMP:'沼泽',FARMLAND:'农田',GRASSLAND:'草原',HILL:'山地'};
     const LVC=l=>l>=50?'#ff7d84':l>=40?'#ffc46b':l>=30?'#c9a6ff':l>=20?'#8ab4ff':l>=10?'#8fd8a0':'#e8ecf4';
     const xy=(x,y,fr)=>'<span style="color:'+(x>=y?(fr?'var(--err)':'var(--acc)'):'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
     let dh='';
@@ -125,9 +126,9 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
     const tr=(s.snapshot&&s.snapshot.training)||[];
     const rm=(s.snapshot&&s.snapshot.resources&&s.snapshot.resources.marches)||[];
     $('trainingbox').innerHTML=tr.map(function(t){
-      return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+t.hero+' <span style="color:'+LVC(t.level||0)+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join('')
-      +rm.map(function(m){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+m.hero+' <span style="color:'+LVC(m.level||0)+'">Lv'+(m.level||'?')+'</span> <span style="color:'+(m.phase==='派遣中'?'var(--ok)':'var(--dim)')+'">'+m.phase+'</span></span><b><span class="cd" data-until="'+m.endsAt+'">'+cd(m.endsAt)+'</span></b></div>'}).join('')
-      +(res&&res.garrisons?res.garrisons.map(function(g){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+g.hero+' <span style="color:'+LVC(g.heroLevel||0)+'">Lv'+(g.heroLevel||'?')+'</span> '+g.type+'Lv'+g.level+' <span style="color:var(--acc)">占领中</span></span><b><span class="cd" data-until="'+g.endsAt+'">'+cd(g.endsAt)+'</span></b></div>'}).join(''):'')
+      return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span><span style="color:#8ab4ff">'+t.hero+'</span> <span style="color:'+LVC(t.level||0)+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join('')
+      +rm.map(function(m){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+m.hero+' <span style="color:'+(m.phase==='派遣中'?'var(--ok)':'var(--dim)')+'">'+m.phase+'</span></span><b><span class="cd" data-until="'+m.endsAt+'">'+cd(m.endsAt)+'</span></b></div>'}).join('')
+      +(res&&res.garrisons?res.garrisons.map(function(g){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+g.hero+' '+(RN[g.type]||g.type)+'Lv'+g.level+' <span style="color:var(--acc)">占领中</span></span><b><span class="cd" data-until="'+g.endsAt+'">'+cd(g.endsAt)+'</span></b></div>'}).join(''):'')
       +((tr.length||rm.length||(res&&res.garrisons&&res.garrisons.length))?'':'<div class="muted">无训练/行军/占领</div>');
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'){
