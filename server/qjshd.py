@@ -9,6 +9,7 @@
 import json
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -112,24 +113,56 @@ class ApiError(Exception):
         self.status = status
 
 
+_tls = threading.local()
+
+
+def _get_conn():
+    """线程局部 keep-alive 连接：TLS 握手一次复用（近期新连接握手常被卡 30s）"""
+    import http.client
+    from urllib.parse import urlparse
+    c = getattr(_tls, "conn", None)
+    if c is None:
+        host = urlparse(BASE).hostname
+        c = http.client.HTTPSConnection(host, timeout=20)
+        _tls.conn = c
+    return c
+
+
 def api(method, path, token=None, body=None):
-    req = urllib_request.Request(BASE + path, method=method)
-    req.add_header("Accept", "application/json")
-    req.add_header("User-Agent", "Mozilla/5.0")
+    import http.client
+    headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
     if token:
-        req.add_header("Authorization", "Bearer " + token)
-    data = None
-    if body is not None:
-        data = json.dumps(body).encode()
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urllib_request.urlopen(req, data=data, timeout=30) as resp:
-            payload = json.loads(resp.read().decode())
-    except urllib_error.HTTPError as e:
+        headers["Authorization"] = "Bearer " + token
+    payload = None
+    data = json.dumps(body).encode() if body is not None else None
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    last_err = None
+    for attempt in (1, 2):
+        c = _get_conn()
         try:
-            payload = json.loads(e.read().decode())
-        except Exception:
-            raise ApiError("HTTP_ERROR", f"HTTP {e.code}", e.code)
+            c.request(method, path, body=data, headers=headers)
+            r = c.getresponse()
+            raw = r.read().decode()
+            if r.status >= 300:
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    raise ApiError("HTTP_ERROR", f"HTTP {r.status}", r.status)
+                break
+            payload = json.loads(raw)
+            break
+        except ApiError:
+            raise
+        except Exception as e:  # 连接坏/握手卡：丢弃重连重试一次
+            last_err = e
+            _tls.conn = None
+            try:
+                c.close()
+            except Exception:
+                pass
+    if payload is None:
+        raise ApiError("NETWORK", str(last_err))
     if payload.get("code") != "OK":
         raise ApiError(payload.get("code", "?"), payload.get("message", ""), payload.get("code") and 200 or 0)
     return payload.get("data")
@@ -175,31 +208,49 @@ def with_session(fn):
 _snap_last_write = 0.0
 
 
+def _snap_fetch_all(token):
+    """并行拉取快照全部子数据（原先串行 9 个请求需 5-20s，并行后约 2-3s）"""
+    ex = ThreadPoolExecutor(max_workers=6)
+    fut = {
+        "tavern": ex.submit(lambda: api("GET", "/api/v1/tavern", token=token)),
+        "tcities": ex.submit(lambda: api("GET", "/api/v1/territory/cities", token=token)),
+        "rocc": ex.submit(lambda: api("GET", "/api/v1/resource-occupations", token=token)),
+        "march": ex.submit(lambda: api("GET", "/api/v1/resource-marches", token=token)),
+        "mi": ex.submit(lambda: api("GET", "/api/v1/military-intelligence", token=token)),
+        "heroes": ex.submit(lambda: api("GET", "/api/v1/heroes?limit=50", token=token)),
+        "train": ex.submit(lambda: api("GET", "/api/v1/hero-training", token=token)),
+    }
+    ex.shutdown(wait=True)
+    out = {}
+    for k, f in fut.items():
+        try:
+            out[k] = f.result()
+        except Exception:
+            out[k] = None
+    return out
+
+
 def write_snapshot(token, home, force=False):
     global _snap_last_write
+    D = _snap_fetch_all(token)
+
     hero_capacity = None
-    try:
-        t = api("GET", "/api/v1/tavern", token=token)
+    t = D.get("tavern")
+    if t:
         hero_capacity = {"capacity": t.get("heroCapacity"), "owned": t.get("ownedHeroCount"), "remaining": t.get("remainingHeroCapacity")}
-    except Exception:
-        pass
-    territory = resources = None
-    try:
-        t = api("GET", "/api/v1/territory/cities", token=token)
+
+    territory = None
+    t = D.get("tcities")
+    if t:
         territory = {"cities": len([c for c in (t.get("cities") or []) if c.get("controlledBySubject")]), "slots": t.get("territorySlots", 0)}
-    except Exception:
-        pass
-    try:
-        r = api("GET", "/api/v1/resource-occupations", token=token)
+
+    resources = None
+    r = D.get("rocc")
+    if r:
         occs = r.get("occupations") or []
-        # 占领上限与城市领地槽同源（territorySlots），随等级提升；家园资源槽总数(9)不是上限
         slots = territory["slots"] if territory else 2
         nxt = min((_parse_ts(o.get("occupiedAt")) + 8 * 3600 - time.time() for o in occs), default=None)
-        # 行军三阶段：OUTBOUND=派遣(去程5min，计入占用)；RETURNING_*=回程(不计占用)
-        try:
-            mm = api("GET", "/api/v1/resource-marches", token=token).get("marches") or []
-        except Exception:
-            mm = []
+        mm = (D.get("march") or {}).get("marches") or []
         outbound = [m for m in mm if m.get("state") == "OUTBOUND"]
         returning = [m for m in mm if str(m.get("state", "")).startswith("RETURNING")]
         resources = {"occupied": len(occs) + len(outbound), "slots": slots,
@@ -207,21 +258,17 @@ def write_snapshot(token, home, force=False):
                      "marches": [{"hero": m.get("heroName"), "level": m.get("heroLevel"),
                                   "phase": ("派遣中" if m.get("state") == "OUTBOUND" else "回城中"),
                                   "endsAt": m.get("arrivesAt")} for m in (outbound + returning)]}
-        try:
-            mi = api("GET", "/api/v1/military-intelligence", token=token)
-            by_node = {e.get("resourceNodeId"): e for e in (mi.get("entries") or [])}
-            hl = api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or []
-            lvmap = {h["heroInstanceId"]: h.get("level") for h in hl}
-            resources["garrisons"] = [
-                {"hero": by_node.get(o.get("resourceNodeId"), {}).get("heroName"),
-                 "heroLevel": lvmap.get(by_node.get(o.get("resourceNodeId"), {}).get("heroInstanceId")),
-                 "type": o.get("type"), "level": o.get("level"),
-                 "endsAt": (datetime.fromtimestamp(_parse_ts(o.get("occupiedAt")) + 8 * 3600, timezone.utc).isoformat())}
-                for o in occs]
-        except Exception:
-            pass
-    except Exception:
-        pass
+        mi = D.get("mi") or {}
+        by_node = {e.get("resourceNodeId"): e for e in (mi.get("entries") or [])}
+        hl = (D.get("heroes") or {}).get("heroes") or []
+        lvmap = {h["heroInstanceId"]: h.get("level") for h in hl}
+        resources["garrisons"] = [
+            {"hero": by_node.get(o.get("resourceNodeId"), {}).get("heroName"),
+             "heroLevel": lvmap.get(by_node.get(o.get("resourceNodeId"), {}).get("heroInstanceId")),
+             "type": o.get("type"), "level": o.get("level"),
+             "endsAt": (datetime.fromtimestamp(_parse_ts(o.get("occupiedAt")) + 8 * 3600, timezone.utc).isoformat())}
+            for o in occs]
+
     snap = {
         "at": datetime.now(timezone.utc).isoformat(),
         "player": {k: home["player"].get(k) for k in ("displayName", "level", "combatPower", "provisionsCapacity")},
@@ -231,17 +278,18 @@ def write_snapshot(token, home, force=False):
         "territory": territory,
         "resources": resources,
     }
-    try:
-        tr = api("GET", "/api/v1/hero-training", token=token)
-        lv = {h["heroInstanceId"]: h.get("level") for h in (api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or [])}
+    tr = D.get("train")
+    if tr:
+        hl = (D.get("heroes") or {}).get("heroes") or []
+        lv = {h["heroInstanceId"]: h.get("level") for h in hl}
         snap["training"] = [
             {"hero": (s.get("session") or {}).get("heroName"),
              "level": lv.get((s.get("session") or {}).get("heroInstanceId")),
+             "quality": next((h.get("quality") for h in hl if h["heroInstanceId"] == (s.get("session") or {}).get("heroInstanceId")), None),
              "plan": (s.get("session") or {}).get("planCode"),
              "endsAt": (s.get("session") or {}).get("endsAt")}
             for s in (tr.get("slots") or []) if s.get("session")]
-    except Exception:
-        pass
+
     with LOCK:
         if not force and time.time() - _snap_last_write < SNAP_WRITE_THROTTLE_S:
             return
@@ -1178,7 +1226,7 @@ class Handler(BaseHTTPRequestHandler):
                 add_log(f"手动开采: {r}")
                 resp = {"ok": True, "result": r}
             elif name == "refresh":
-                refresh_snapshot(force=True)
+                threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
                 resp = {"ok": True, "result": ["已刷新"]}
             elif name == "scan":
                 fs = job_purple_scan()
@@ -1189,7 +1237,8 @@ class Handler(BaseHTTPRequestHandler):
                 st, hd, bd = jresp({"error": "unknown job"}, 400)
                 self._send(st, hd, bd)
                 return
-            threading.Timer(1.5, refresh_snapshot, kwargs={"force": True}).start()
+            if name != "refresh":
+                threading.Timer(1.5, refresh_snapshot, kwargs={"force": True}).start()
             st, hd, bd = jresp(resp)
             self._send(st, hd, bd)
             return
