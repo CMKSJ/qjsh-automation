@@ -583,6 +583,16 @@ def job_purple_scan():
                         continue
                     if h.get("status") != "ALIVE":
                         continue
+                    if not h.get("shortId") or not pcache.get(h["owner"], {}).get("shortId"):
+                        try:
+                            s2 = api("GET", "/api/v1/player-search?type=NAME&query=" + urllib_parse.quote(h["owner"]), token=token)
+                            p0 = (s2.get("players") or [None])[0]
+                            if p0:
+                                pcache[h["owner"]] = {"playerId": p0["playerId"], "shortId": p0.get("shortId"), "level": p0.get("level")}
+                                if not h.get("playerId") or h["playerId"] == p0["playerId"]:
+                                    h["shortId"] = p0.get("shortId")
+                        except Exception:
+                            pass
                     if any(f.startswith(h["owner"] + "家 " + h["hero"]) or (h["hero"] in f and h["owner"] in f) for f in found):
                         continue
                     try:
