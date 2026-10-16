@@ -247,16 +247,17 @@ def write_snapshot(token, home, force=False):
     res_entries = [e for e in (mi.get("entries") or []) if e.get("targetKind") == "RESOURCE"]
     garrisoned = [e for e in res_entries if e.get("state") == "GARRISONED"]
     marching = [e for e in res_entries if e.get("state") != "GARRISONED"]
-    outbound = [e for e in marching if e.get("action") == "OCCUPY"]
-    returning = [e for e in marching if e.get("action") != "OCCUPY"]
+    # 按 state 分类（召回条目 action 仍是 OCCUPY，不能按 action 分）
+    outbound = [e for e in marching if e.get("state") == "OUTBOUND"]
+    returning = [e for e in marching if e.get("state") != "OUTBOUND"]
     slots = territory["slots"] if territory else 2
     nxt = min((_parse_ts(e.get("occurredAt")) + 8 * 3600 - time.time() for e in garrisoned), default=None)
     resources = {"occupied": len(garrisoned) + len(outbound), "slots": slots,
                  "nextHarvestIn": (round(nxt) if nxt is not None else None),
                  "garrisons": [
-                     {"hero": e.get("heroName"), "type": e.get("targetResourceType") if e.get("state") == "GARRISONED" else None,
+                     {"hero": e.get("heroName"), "type": e.get("targetResourceType"),
                       "level": e.get("targetResourceLevel"),
-                      "phase": ("占领中" if e.get("state") == "GARRISONED" else ("派遣中" if e.get("action") == "OCCUPY" else "回城中")),
+                      "phase": ("占领中" if e.get("state") == "GARRISONED" else ("派遣中" if e.get("state") == "OUTBOUND" else "回城中")),
                       "endsAt": (datetime.fromtimestamp(_parse_ts(e.get("occurredAt")) + 8 * 3600, timezone.utc).isoformat() if e.get("state") == "GARRISONED" else e.get("arrivesAt"))}
                      for e in (garrisoned + outbound + returning)]}
 
