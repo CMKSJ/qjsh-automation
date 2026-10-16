@@ -88,7 +88,8 @@ def save(key, value):
 def add_log(msg, level="info"):
     with LOCK:
         log = load("log", [])
-        log.insert(0, {"t": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{datetime.now(timezone.utc).microsecond // 1000:03d}Z", "msg": msg, "level": level})
+        _n = datetime.now(TZ)
+        log.insert(0, {"t": _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond // 1000:03d}+08:00", "msg": msg, "level": level})
         del log[LOG_MAX:]
         save("log", log)
 
@@ -728,8 +729,9 @@ def grab_hero(key, manual=False):
                         if key in heroes:
                             heroes[key]["protectionEndsAt"] = pe
                             save("purpleHeroes", heroes)
-                    add_log(f"{h['hero']} " + (f"卡池已刷新，保护期更新至 {pe[11:19]}Z，自动重新蹲点" if changed
-                                              else f"保护期尚未结束（{pe[11:19]}Z 开闸），继续按计划蹲点"), "warn")
+                    _pe_bj = datetime.fromisoformat((pe or "").replace("Z", "+00:00")).astimezone(TZ).strftime("%H:%M:%S")
+                    add_log(f"{h['hero']} " + (f"卡池已刷新，保护期更新至 {_pe_bj}，自动重新蹲点" if changed
+                                              else f"保护期尚未结束（{_pe_bj} 开闸），继续按计划蹲点"), "warn")
                     return {"ok": False, "msg": "保护期已更新，重新排队" if changed else "保护期未到，继续���点"}
             except Exception:
                 pass
