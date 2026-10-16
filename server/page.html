@@ -169,7 +169,8 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
       if(ra!==rb)return ra-rb;
       if(ra===3)return new Date(a.protectionEndsAt)-new Date(b.protectionEndsAt);
       const qa=a.quality==='ORANGE'?1:0,qb=b.quality==='ORANGE'?1:0;
-      return qb-qa||a.star-b.star;
+      const asc=(ra===2||ra===3);  // 在售/保留组升序；购得/售罄组降序
+      return qb-qa||(asc?a.star-b.star:b.star-a.star);
     });
     const liveKeys=hs.filter(h=>h.status==='ALIVE').map(h=>h.key);
     if(knownHeroKeys===null){knownHeroKeys=new Set(liveKeys)}
