@@ -596,6 +596,26 @@ def parse_appearance(text):
     return {"owner": m.group(1), "star": int(m.group(2)), "hero": m.group(4)} if m else None
 
 
+_notices = []
+_notice_seq = [0]
+
+
+def notify(msg):
+    """面板 toast 通知（status 轮询携带，前端弹提示；60 秒时效自动消失）"""
+    _notice_seq[0] += 1
+    _notices.append({"id": _notice_seq[0], "msg": msg, "at": time.time()})
+    del _notices[:-10]
+
+
+def _live_notices():
+    return [n for n in _notices if time.time() - n["at"] < 60]
+
+
+def _cap_full():
+    cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
+    return bool(cap) and cap.get("capacity", 0) > 0 and cap.get("owned", 0) >= cap.get("capacity", 0)
+
+
 def job_purple_scan():
     found = []
     auto_reserve = load("autoReserve", True) is not False
