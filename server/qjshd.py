@@ -444,7 +444,6 @@ def job_soul_factory(token):
 
 SOUL_SCAN_BATCH = 85          # 每段玩家数（~2 分钟）
 SOUL_SCAN_MIN_LEVEL = 10      # 可被招募的最低玩家等级（用户确认）
-SOUL_SCAN_MAX_PER_RUN = 3     # 每段招募上限
 
 
 def _player_by_sid(token, sid, pcache):
@@ -482,13 +481,13 @@ def job_soul_scan():
         return "铜钱不足5000，跳过"
     if free < 1 and False:
         pass  # 空位由招→提即时循环，不强制预检（招募满员会被服务器拒）
-    st = load("soulScan", {"cursor": 100001, "max": 101100})
-    cursor, mx = st.get("cursor", 100001), st.get("max", 101100)
+    st = load("soulScan", {"cursor": 100000, "max": 101100})
+    cursor, mx = st.get("cursor", 100000), st.get("max", 101100)
     pcache = load("sidCache", {})
     visited, found, grabbed = 0, 0, 0
     results = []
     sid = cursor
-    while sid <= mx and visited < SOUL_SCAN_BATCH and grabbed < SOUL_SCAN_MAX_PER_RUN:
+    while sid <= mx and visited < SOUL_SCAN_BATCH:
         info = _player_by_sid(tok, str(sid), pcache)
         sid += 1
         if not info or (info.get("level") or 0) < SOUL_SCAN_MIN_LEVEL:
@@ -517,6 +516,13 @@ def job_soul_scan():
             sr = api("POST", f"/api/v1/heroes/{hid}/soul-extractions", token=tok, body={
                 "operationId": op_id(), "expectedHeroVersion": str(h.get("version", "0"))})
             grabbed += 1
+            try:
+                copper -= int(r.get("copperCost") or 1700)
+            except Exception:
+                copper -= 1700
+            if copper < 5000:
+                results.append("铜钱不足5000，停止本段")
+                break
             n = 1
             try:
                 n = int(sr.get("quantity") or 1)
@@ -533,7 +539,7 @@ def job_soul_scan():
     save("sidCache", pcache)
     # 游标推进（含空号）；发现更大的 shortId 自动扩界
     big = max([int(v["shortId"]) for v in pcache.values() if v] + [mx])
-    st = {"cursor": (sid if sid <= mx else 100001), "max": max(mx, big + 20)}
+    st = {"cursor": (sid if sid <= mx else 100000), "max": max(mx, big + 20)}
     save("soulScan", st)
     msg = f"提魂遍历: 检查{visited}家, 绿将{found}, 招+提{grabbed}" + (f"({','.join(results)})" if results else "")
     if grabbed:
