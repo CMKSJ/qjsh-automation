@@ -137,7 +137,9 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
     dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
     const souls=s.souls||{};
-    const soulTxt=Object.keys(souls).length?Object.entries(souls).map(function(e2){return ({GREEN:'绿',BLUE:'蓝',PURPLE:'紫',ORANGE:'橙'}[e2[0]]||e2[0])+e2[1]}).join('·'):'0';
+    const SCOL={GREEN:'#8fd8a0',BLUE:'#8ab4ff',PURPLE:'#c9a6ff',ORANGE:'#ffc46b'};
+    const SNAME={GREEN:'绿',BLUE:'蓝',PURPLE:'紫',ORANGE:'橙'};
+    const soulTxt=Object.keys(souls).length?Object.entries(souls).map(function(e2){return '<span style="color:'+(SCOL[e2[0]]||'var(--txt)')+'">'+(SNAME[e2[0]]||e2[0])+e2[1]+'</span>'}).join('·'):'0';
     dh+='<div class="kv"><span>提魂</span><b>'+soulTxt+'</b></div>';
     $('daily').innerHTML=dh;
     const tr=(s.snapshot&&s.snapshot.training)||[];
