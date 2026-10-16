@@ -114,16 +114,16 @@ async function render(){
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
     const xy=(x,y,fr)=>'<span style="color:'+(x>=y?(fr?'var(--err)':'var(--acc)'):'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
     let dh='';
-    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a class="miniact" onclick="job(\'signin\')">立即签到</a>')+'</b></div>';
-dh+='<div class="kv"><span>矿山</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10'+(d.mining<10?' <a class="miniact" onclick="job(\'mine\')">开采</a>':'')+'</b></div>';
-dh+='<div class="kv"><span>整点任务</span><b>'+hrs+' 次 <a class="miniact" onclick="job(\'hourly\')">立即执行</a></b></div>';
+    dh+='<div class="kv"><span>签到</span>'+(d.signin?'':'<a class="miniact" style="margin-left:auto" onclick="job(\'signin\')">立即签到</a>')+'<b>'+(d.signin?'✓ 已完成':'')+'</b></div>';
+dh+='<div class="kv"><span>矿山</span>'+(d.mining<10?'<a class="miniact" style="margin-left:auto" onclick="job(\'mine\')">开采</a>':'')+'<b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10</b></div>';
+dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-left:auto" onclick="job(\'hourly\')">立即执行</a><b>'+hrs+' 次</b></div>';
     dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap,true)+'</b></div>';
     dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
     $('daily').innerHTML=dh;
     const tr=(s.snapshot&&s.snapshot.training)||[];
-    $('trainingbox').innerHTML=tr.length?tr.map(function(t){const QC={ORANGE:'#ffc46b',PURPLE:'#c9a6ff',BLUE:'#8ab4ff',GREEN:'#8fd8a0',WHITE:'#e8ecf4'};
-      return '<div class="kv" style="grid-column:1/-1"><span>'+t.hero+' <span style="color:'+(QC[t.quality]||'var(--dim)')+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join(''):'<div class="kv" style="grid-column:1/-1"><span>训练</span><b>无</b></div>';
+    $('trainingbox').innerHTML=tr.length?tr.map(function(t){const LVC=l=>l>=50?'#ff7d84':l>=40?'#ffc46b':l>=30?'#c9a6ff':l>=20?'#8ab4ff':l>=10?'#8fd8a0':'#e8ecf4';
+      return '<div class="kv" style="grid-column:1/-1"><span>'+t.hero+' <span style="color:'+LVC(t.level||0)+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join(''):'<div class="kv" style="grid-column:1/-1"><span>训练</span><b>无</b></div>';
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'){
         const dt=new Date(h.protectionEndsAt)-Date.now();
