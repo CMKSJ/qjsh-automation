@@ -442,6 +442,106 @@ def job_soul_factory(token):
     return out
 
 
+SOUL_SCAN_BATCH = 85          # 每段玩家数（~2 分钟）
+SOUL_SCAN_MIN_LEVEL = 10      # 可被招募的最低玩家等级（用户确认）
+SOUL_SCAN_MAX_PER_RUN = 3     # 每段招募上限
+
+
+def _player_by_sid(token, sid, pcache):
+    if sid in pcache:
+        return pcache[sid]
+    try:
+        s = api("GET", f"/api/v1/player-search?type=SHORT_ID&query={sid}", token=token)
+        p0 = (s.get("players") or [None])[0]
+        if p0:
+            pcache[sid] = {"playerId": p0["playerId"], "shortId": sid, "level": p0.get("level")}
+            return pcache[sid]
+    except Exception:
+        pass
+    pcache[sid] = None
+    return None
+
+
+def job_soul_scan():
+    """一段遍历：从游标起扫 SOUL_SCAN_BATCH 个 shortId，绿将招+提魂"""
+    if load("soulFactory", False) is not True:
+        return None
+    tok = read_token()
+    if not tok:
+        return None
+    try:
+        home = api("GET", "/api/v1/home", token=tok)
+        cur = {c["code"]: c for c in home["economy"]["currencies"]}
+        copper = cur.get("COPPER", {}).get("balance", 0)
+        cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
+        free = (cap.get("capacity", 0) - cap.get("owned", 0)) if cap else 0
+    except Exception as e:
+        add_log(f"提魂遍历前置失败: {getattr(e, 'code', e)}", "error")
+        return None
+    if copper < 5000:
+        return "铜钱不足5000，跳过"
+    if free < 1 and False:
+        pass  # 空位由招→提即时循环，不强制预检（招募满员会被服务器拒）
+    st = load("soulScan", {"cursor": 100001, "max": 101100})
+    cursor, mx = st.get("cursor", 100001), st.get("max", 101100)
+    pcache = load("sidCache", {})
+    visited, found, grabbed = 0, 0, 0
+    results = []
+    sid = cursor
+    while sid <= mx and visited < SOUL_SCAN_BATCH and grabbed < SOUL_SCAN_MAX_PER_RUN:
+        info = _player_by_sid(tok, str(sid), pcache)
+        sid += 1
+        if not info or (info.get("level") or 0) < SOUL_SCAN_MIN_LEVEL:
+            continue
+        visited += 1
+        try:
+            t = api("GET", f"/api/v1/friend-cities/{info['playerId']}/tavern", token=tok)
+        except Exception:
+            continue
+        cand = next((c for c in (t.get("candidates") or []) if c.get("quality") == "GREEN" and c.get("recruitmentAvailable")), None)
+        if not cand:
+            continue
+        found += 1
+        # 招募 → 提魂（满员则跳过该家）
+        try:
+            r = api("POST", f"/api/v1/friend-cities/{info['playerId']}/tavern/recruitments", token=tok, body={
+                "operationId": op_id(), "candidateId": cand["candidateId"],
+                "expectedCandidateVersion": cand.get("version", 0)})
+            hid = r.get("heroInstanceId")
+            if not hid:
+                continue
+            hl = api("GET", "/api/v1/heroes?limit=50", token=tok).get("heroes") or []
+            h = next((x for x in hl if x["heroInstanceId"] == hid), None)
+            if not h:
+                continue
+            sr = api("POST", f"/api/v1/heroes/{hid}/soul-extractions", token=tok, body={
+                "operationId": op_id(), "expectedHeroVersion": str(h.get("version", "0"))})
+            grabbed += 1
+            n = 1
+            try:
+                n = int(sr.get("quantity") or 1)
+            except Exception:
+                pass
+            _add_souls("GREEN", n)
+            results.append(f"{cand['name']}({cand['star']}星)+{n}魂")
+        except Exception as e:
+            code = getattr(e, "code", "")
+            if code in ("HERO_CAPACITY_FULL", "CAPACITY_FULL"):
+                results.append("空位不足，停止本段")
+                break
+            continue
+    save("sidCache", pcache)
+    # 游标推进（含空号）；发现更大的 shortId 自动扩界
+    big = max([int(v["shortId"]) for v in pcache.values() if v] + [mx])
+    st = {"cursor": (sid if sid <= mx else 100001), "max": max(mx, big + 20)}
+    save("soulScan", st)
+    msg = f"提魂遍历: 检查{visited}家, 绿将{found}, 招+提{grabbed}" + (f"({','.join(results)})" if results else "")
+    if grabbed:
+        add_log(msg, "success")
+        threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+    return msg
+
+
 def check_tavern_refresh():
     """自家酒馆刷新到点触发将魂工厂（nextFreeRefreshAt 进入 90s 窗口）"""
     if load("soulFactory", False) is not True:
@@ -1211,6 +1311,8 @@ def tick():
     check_training_timers()
     check_resource_timers()
     check_tavern_refresh()
+    if minute % 10 == 4:
+        threading.Thread(target=job_soul_scan, daemon=True).start()
     if load("paused", False) is True:
         if minute % 5 == 2:
             for f in job_purple_scan():
