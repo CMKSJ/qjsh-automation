@@ -99,7 +99,7 @@ async function render(){
     $('hserver').textContent=(s.state?.serverId||'');
     window.__paused=!!s.paused;
     $('pauser').textContent=window.__paused?'▶':'⏸';
-    $('pauser').style.borderColor=window.__paused?'var(--err)':'var(--ok)';
+    $('pauser').style.borderColor=window.__paused?'rgba(229,100,108,.45)':'rgba(63,185,111,.45)';
     $('pauser').style.color=window.__paused?'var(--err)':'var(--ok)';
     $('pauser').style.background=window.__paused?'rgba(229,100,108,.13)':'rgba(63,185,111,.13)';
         if(window.__cap){const full=window.__cap.owned>=window.__cap.capacity;$('herocap').innerHTML='武将 <span style="color:'+(full?'var(--err)':'var(--ok)')+'">'+window.__cap.owned+'</span>/<span style="color:var(--acc)">'+window.__cap.capacity+'</span>';}else{$('herocap').textContent='';}
@@ -108,7 +108,7 @@ async function render(){
     $('arstate').style.color=window.__autoReserve?'var(--ok)':'var(--err)';
     $('autores').textContent='🎯';
     $('autores').style.color=window.__autoReserve?'var(--ok)':'var(--err)';
-    $('autores').style.borderColor=window.__autoReserve?'var(--ok)':'var(--err)';
+    $('autores').style.borderColor=window.__autoReserve?'rgba(63,185,111,.45)':'rgba(229,100,108,.45)';
     $('autores').style.background=window.__autoReserve?'rgba(63,185,111,.13)':'rgba(229,100,108,.13)';
     $('autores').title=window.__autoReserve?'自动预约中，点击暂停收购':'已暂停收购，点击恢复自动预约';
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
