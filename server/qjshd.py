@@ -250,7 +250,9 @@ def write_snapshot(token, home, force=False):
         occs = r.get("occupations") or []
         slots = territory["slots"] if territory else 2
         nxt = min((_parse_ts(o.get("occupiedAt")) + 8 * 3600 - time.time() for o in occs), default=None)
-        mm = (D.get("march") or {}).get("marches") or []
+        _hl = (D.get("heroes") or {}).get("heroes") or []
+        _own_ids = {h["heroInstanceId"] for h in _hl}
+        mm = [m for m in ((D.get("march") or {}).get("marches") or []) if m.get("heroInstanceId") in _own_ids]
         outbound = [m for m in mm if m.get("state") == "OUTBOUND"]
         returning = [m for m in mm if str(m.get("state", "")).startswith("RETURNING")]
         resources = {"occupied": len(occs) + len(outbound), "slots": slots,
@@ -400,7 +402,9 @@ def job_training(token):
     """领取完成训练；空闲槽选稀有度最高可用武将；时长=不溢出(discarded=0)的最长档，
     全溢出选浪费最小档；铜钱不足再降档。经验在开始时即入账。（全局锁串行）"""
     with TRAIN_LOCK:
-        return _job_training_locked(token)
+        _r = _job_training_locked(token)
+    threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+    return _r
 
 
 def _job_training_locked(token):
@@ -892,6 +896,7 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
         api("POST", "/api/v1/resource-occupations/" + occ["occupationId"] + "/harvests", token=tok,
             body={"operationId": op_id(), "expectedVersion": str(occ.get("occupationVersion", "0")), "heroInstanceId": None})
         add_log("资源点收获: " + str(hero_name) + " @" + str(occ.get("type", "")) + "Lv" + str(occ.get("level")), "success")
+        threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
     except Exception as e:
         add_log("资源点收获失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
         return
