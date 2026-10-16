@@ -38,7 +38,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #tokbanner ol{margin:6px 0 0 18px;font-size:12.5px}
 </style></head><body>
 <div id="toast"></div>
-<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span><button id="sndbtn" class="ghost" style="padding:2px 8px;margin-left:auto;font-size:15px" onclick="toggleSnd()">🔔</button><button id="pauser" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="togglePause()">⏸</button></h1>
+<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span><button id="pauser" class="ghost" style="padding:2px 8px;margin-left:auto;font-size:14px;line-height:1.2" onclick="togglePause()">⏸</button><button id="refbtn" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="job('refresh')" title="刷新信息">🔄</button><button id="sndbtn" class="ghost" style="padding:2px 8px;font-size:15px" onclick="toggleSnd()">🔔</button></h1>
 <div class="card" id="tokbanner" hidden>
   <h2>尚未上报 accessToken</h2>
   <ol>
@@ -52,12 +52,8 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
 <div class="card"><h2>今日任务</h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
-    <button class="soft" onclick="job('refresh')">刷新</button>
-    <button class="soft" onclick="job('signin')">立即签到</button>
-    <button class="soft" onclick="job('hourly')">立即整点任务</button>
-    <button class="soft" onclick="job('mine')">开采一次</button>
   </div><div class="grid" id="trainingbox"></div></div>
-<div class="card"><h2>酒馆监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button id="autores" class="ghost" style="padding:3px 10px" onclick="toggleAutoRes()">自动预约</button><button class="soft" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
+<div class="card"><h2>酒馆监控 <span class="tag" id="arstate"></span> <span class="tag" id="herocap"></span><button id="autores" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleAutoRes()">🎯</button><button class="soft" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
@@ -99,23 +95,26 @@ async function render(){
     window.__heroes=s.heroes||{};
     $('sndbtn').textContent=soundOn?'🔔':'🔕';$('sndbtn').style.opacity=soundOn?'1':'0.5';
     const act=s.activity||{};
-    $('hserver').textContent=(s.state?.serverId||'')+(act.active?' · 🟢玩家活跃(自动暂停中)':' · ⚪玩家离线(自动运行)');
+    $('hserver').textContent=(s.state?.serverId||'');
     window.__paused=!!s.paused;
     $('pauser').textContent=window.__paused?'▶':'⏸';
-    $('pauser').style.borderColor=window.__paused?'var(--err)':'';
-    $('pauser').style.color=window.__paused?'var(--err)':'';
+    $('pauser').style.borderColor=window.__paused?'var(--err)':'var(--ok)';
+    $('pauser').style.color=window.__paused?'var(--err)':'var(--ok)';
         if(window.__cap){const full=window.__cap.owned>=window.__cap.capacity;$('herocap').innerHTML='武将 <span style="color:'+(full?'var(--err)':'var(--ok)')+'">'+window.__cap.owned+'</span>/<span style="color:var(--acc)">'+window.__cap.capacity+'</span>';}else{$('herocap').textContent='';}
     window.__autoReserve=s.autoReserve!==false;
-    $('autores').textContent=window.__autoReserve?'自动预约':'暂停收购';
+    $('arstate').textContent=window.__autoReserve?'自动预约':'暂停收购';
+    $('arstate').style.color=window.__autoReserve?'var(--ok)':'var(--err)';
+    $('autores').textContent='🎯';
     $('autores').style.color=window.__autoReserve?'var(--ok)':'var(--err)';
-    $('autores').style.borderColor=window.__autoReserve?'':'var(--err)';
+    $('autores').style.borderColor=window.__autoReserve?'var(--ok)':'var(--err)';
+    $('autores').title=window.__autoReserve?'自动预约中，点击暂停收购':'已暂停收购，点击恢复自动预约';
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
-    const xy=(x,y)=>'<span style="color:'+(x>=y?'var(--acc)':'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
+    const xy=(x,y,fr)=>'<span style="color:'+(x>=y?(fr?'var(--err)':'var(--acc)'):'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
     let dh='';
-    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a href="javascript:job(\'signin\')" style="color:var(--acc)">立即签到</a>')+'</b></div>';
+    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a href="javascript:job(\'signin\')" style="color:var(--acc);font-size:11px">立即签到</a>')+'</b></div>';
     dh+='<div class="kv"><span>矿山'+(d.mining<10?' <a href="javascript:job(\'mine\')" style="color:var(--acc);font-size:11px">开采</a>':'')+'</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10</b></div>';
     dh+='<div class="kv"><span>整点任务 <a href="javascript:job(\'hourly\')" style="color:var(--acc);font-size:11px">立即执行</a></span><b>'+hrs+' 次</b></div>';
-    dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap)+'</b></div>';
+    dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap,true)+'</b></div>';
     dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
     $('daily').innerHTML=dh;
