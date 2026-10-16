@@ -115,14 +115,15 @@ async function render(){
     const xy=(x,y,fr)=>'<span style="color:'+(x>=y?(fr?'var(--err)':'var(--acc)'):'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
     let dh='';
     dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a class="miniact" onclick="job(\'signin\')">立即签到</a>')+'</b></div>';
-dh+='<div class="kv"><span>矿山</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10'+(d.mining<10?' <a class="miniact" onclick="job(' + q + 'mine' + q + ')">开采</a>':'')+'</b></div>';
-dh+='<div class="kv"><span>整点任务</span><b>'+hrs+' 次 <a class="miniact" onclick="job(' + q + 'hourly' + q + ')">立即执行</a></b></div>';
+dh+='<div class="kv"><span>矿山</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10'+(d.mining<10?' <a class="miniact" onclick="job(\'mine\')">开采</a>':'')+'</b></div>';
+dh+='<div class="kv"><span>整点任务</span><b>'+hrs+' 次 <a class="miniact" onclick="job(\'hourly\')">立即执行</a></b></div>';
     dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap,true)+'</b></div>';
     dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
     $('daily').innerHTML=dh;
     const tr=(s.snapshot&&s.snapshot.training)||[];
-    $('trainingbox').innerHTML=tr.length?tr.map(function(t){return '<div class="kv" style="grid-column:1/-1"><span>'+t.hero+' Lv'+(t.level||'?')+'</span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join(''):'<div class="kv" style="grid-column:1/-1"><span>训练</span><b>无</b></div>';
+    $('trainingbox').innerHTML=tr.length?tr.map(function(t){const QC={ORANGE:'#ffc46b',PURPLE:'#c9a6ff',BLUE:'#8ab4ff',GREEN:'#8fd8a0',WHITE:'#e8ecf4'};
+      return '<div class="kv" style="grid-column:1/-1"><span>'+t.hero+' <span style="color:'+(QC[t.quality]||'var(--dim)')+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join(''):'<div class="kv" style="grid-column:1/-1"><span>训练</span><b>无</b></div>';
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'){
         const dt=new Date(h.protectionEndsAt)-Date.now();
@@ -169,7 +170,7 @@ dh+='<div class="kv"><span>整点任务</span><b>'+hrs+' 次 <a class="miniact" 
           :expired?'<button class="warn" onclick="grab(\''+k+'\')">抢购</button>'
           :'<button onclick="res(\''+k+'\')">预约</button>';
         const cdtxt=h.status==='ALIVE'?'<span class="cd" data-until="'+h.protectionEndsAt+'">'+cd(h.protectionEndsAt)+'</span>':'—';
-        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+'(Lv'+h.ownerLevel+')</td><td>'+(h.status==='GRABBED'?(h.paidCopper!=null?fmt(h.paidCopper)+'铜'+(h.paidTicket?'+'+h.paidTicket+'票':''):'—'):(h.copperCost!=null?fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':''):'—'))+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
+        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+(h.shortId?'('+h.shortId+')':'(Lv'+h.ownerLevel+')')+'</td><td>'+(h.status==='GRABBED'?(h.paidCopper!=null?fmt(h.paidCopper)+'铜'+(h.paidTicket?'+'+h.paidTicket+'票':''):'—'):(h.copperCost!=null?fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':''):'—'))+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
       :'<p class="muted">暂无监控目标</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
