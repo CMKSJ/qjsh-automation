@@ -52,6 +52,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
 <div class="card"><h2>今日任务</h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
+    <button class="soft" onclick="job('refresh')">刷新</button>
     <button class="soft" onclick="job('signin')">立即签到</button>
     <button class="soft" onclick="job('hourly')">立即整点任务</button>
     <button class="soft" onclick="job('mine')">开采一次</button>
@@ -113,6 +114,7 @@ async function render(){
       ['粮草',provNow+'/'+provCap],
       ['领地',(s.snapshot&&s.snapshot.territory)?(s.snapshot.territory.cities+'/'+s.snapshot.territory.slots):'-'],
       ['资源点',(s.snapshot&&s.snapshot.resources)?(s.snapshot.resources.occupied+'/'+s.snapshot.resources.slots):'-'],
+      ['训练',(s.snapshot&&s.snapshot.training&&s.snapshot.training.length)?s.snapshot.training.map(function(t){return t.hero+'('+String(t.plan||'').replace(/_?[0-9]+H$/,'')+') <span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span>'}).join(' · '):'无'],
     ].map(([k,v])=>'<div class="kv"><span>'+k+'</span><b>'+v+'</b></div>').join('');
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'){

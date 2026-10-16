@@ -209,6 +209,15 @@ def write_snapshot(token, home, force=False):
         "territory": territory,
         "resources": resources,
     }
+    try:
+        tr = api("GET", "/api/v1/hero-training", token=token)
+        snap["training"] = [
+            {"hero": (s.get("session") or {}).get("heroName"),
+             "plan": (s.get("session") or {}).get("planCode"),
+             "endsAt": (s.get("session") or {}).get("endsAt")}
+            for s in (tr.get("slots") or []) if s.get("session")]
+    except Exception:
+        pass
     with LOCK:
         if not force and time.time() - _snap_last_write < SNAP_WRITE_THROTTLE_S:
             return
@@ -445,13 +454,8 @@ def job_hourly(active=False):
             prov = cur.get("PROVISIONS", {}).get("balance", 0)
             copper = cur.get("COPPER", {}).get("balance", 0)
             prov_cap = home["player"].get("provisionsCapacity", 22)
-            budget = 0
-            skip_reason = None
-            if not active:
-                # 防溢出最小兑换 y = max(x+13-m, 0)（玩家活跃时仅此项暂停）
-                budget = max(prov + 13 - prov_cap, 0)
-            else:
-                skip_reason = "玩家活跃中"
+            # 防溢出最小兑换 y = max(x+13-m, 0)（玩家活跃不再暂停，保留余粮充足）
+            budget = max(prov + 13 - prov_cap, 0)
             plan = {}
             for t in EXCHANGE_TIERS:
                 while budget >= t:
@@ -717,6 +721,40 @@ def grab_burst(key):
 _grab_threads = {}
 
 
+_train_timers = {}
+
+
+def check_training_timers():
+    """训练到点精确触发：endsAt 进入 90s 窗口的 session 安排独立线程，
+    到点(结束+3s)自动领取并立即重排（不等整点）。整点任务保留作兜底。"""
+    try:
+        d = with_session(lambda tok: api("GET", "/api/v1/hero-training", token=tok))
+    except Exception:
+        return
+    for s in d.get("slots") or []:
+        sess = s.get("session")
+        if not sess:
+            continue
+        slot = s["slotNumber"]
+        th = _train_timers.get(slot)
+        if th and th.is_alive():
+            continue
+        wait = _parse_ts(sess.get("endsAt")) + 3 - time.time()
+        if wait > 90:
+            continue
+        def fire(w=wait, name=sess.get("heroName")):
+            time.sleep(max(0, w))
+            try:
+                tok = read_token()
+                r = job_training(tok)
+                add_log("训练到点触发(" + str(name) + "): " + "; ".join(r))
+            except Exception as e:
+                add_log("训练触发失败: " + str(getattr(e, "code", e)), "error")
+        th = threading.Thread(target=fire, daemon=True)
+        _train_timers[slot] = th
+        th.start()
+
+
 def check_reservations():
     with LOCK:
         heroes = load("purpleHeroes", {})
@@ -801,7 +839,7 @@ def tick():
                     save("daily", daily)
 
         if minute == 0 and str(hour) not in (daily.get("hourly") or {}):
-            r = job_hourly(active=player_active)
+            r = job_hourly()
             daily = load("daily", {})
             daily.setdefault("hourly", {})[str(hour)] = True
             save("daily", daily)
@@ -811,6 +849,7 @@ def tick():
             for f in job_purple_scan():
                 add_log(f"发现紫将: {f}", "success")
 
+        check_training_timers()
         check_reservations()
     except Exception as e:
         add_log(f"调度异常: {e}", "error")
@@ -983,6 +1022,9 @@ class Handler(BaseHTTPRequestHandler):
                     save("daily", daily)
                 add_log(f"手动开采: {r}")
                 resp = {"ok": True, "result": r}
+            elif name == "refresh":
+                refresh_snapshot(force=True)
+                resp = {"ok": True, "result": ["已刷新"]}
             elif name == "scan":
                 fs = job_purple_scan()
                 for f in fs:
