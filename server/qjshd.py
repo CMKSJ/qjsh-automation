@@ -194,7 +194,18 @@ def write_snapshot(token, home, force=False):
         # 占领上限与城市领地槽同源（territorySlots），随等级提升；家园资源槽总数(9)不是上限
         slots = territory["slots"] if territory else 2
         nxt = min((_parse_ts(o.get("occupiedAt")) + 8 * 3600 - time.time() for o in occs), default=None)
-        resources = {"occupied": len(occs), "slots": slots, "nextHarvestIn": (round(nxt) if nxt is not None else None)}
+        # 行军三阶段：OUTBOUND=派遣(去程5min，计入占用)；RETURNING_*=回程(不计占用)
+        try:
+            mm = api("GET", "/api/v1/resource-marches", token=token).get("marches") or []
+        except Exception:
+            mm = []
+        outbound = [m for m in mm if m.get("state") == "OUTBOUND"]
+        returning = [m for m in mm if str(m.get("state", "")).startswith("RETURNING")]
+        resources = {"occupied": len(occs) + len(outbound), "slots": slots,
+                     "nextHarvestIn": (round(nxt) if nxt is not None else None),
+                     "marches": [{"hero": m.get("heroName"), "level": m.get("heroLevel"),
+                                  "phase": ("派遣中" if m.get("state") == "OUTBOUND" else "回城中"),
+                                  "endsAt": m.get("arrivesAt")} for m in (outbound + returning)]}
         try:
             mi = api("GET", "/api/v1/military-intelligence", token=token)
             by_node = {e.get("resourceNodeId"): e for e in (mi.get("entries") or [])}

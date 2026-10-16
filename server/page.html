@@ -53,7 +53,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
 <div class="card"><h2>今日任务<button class="ghost" style="margin-left:auto;padding:2px 8px;font-size:14px;line-height:1.2" onclick="job('refresh')" title="刷新信息">🔄</button></h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
-  </div><div class="grid" id="trainingbox"></div></div>
+  </div><div id="trainingbox" style="margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:8px 12px"></div></div>
 <div class="card"><h2>酒馆监控 <span class="tag" id="arstate"></span> <span class="tag" id="herocap" style="margin-left:auto"></span><button id="autores" class="soft" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleAutoRes()">🎯</button><button class="soft" style="padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
@@ -112,6 +112,7 @@ async function render(){
     $('autores').style.background=window.__autoReserve?'rgba(63,185,111,.13)':'rgba(229,100,108,.13)';
     $('autores').title=window.__autoReserve?'自动预约中，点击暂停收购':'已暂停收购，点击恢复自动预约';
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
+    const LVC=l=>l>=50?'#ff7d84':l>=40?'#ffc46b':l>=30?'#c9a6ff':l>=20?'#8ab4ff':l>=10?'#8fd8a0':'#e8ecf4';
     const xy=(x,y,fr)=>'<span style="color:'+(x>=y?(fr?'var(--err)':'var(--acc)'):'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
     let dh='';
     dh+='<div class="kv"><span>签到</span>'+(d.signin?'':'<a class="miniact" style="margin-left:auto" onclick="job(\'signin\')">立即签到</a>')+'<b>'+(d.signin?'✓ 已完成':'')+'</b></div>';
@@ -122,8 +123,12 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
     $('daily').innerHTML=dh;
     const tr=(s.snapshot&&s.snapshot.training)||[];
-    $('trainingbox').innerHTML=tr.length?tr.map(function(t){const LVC=l=>l>=50?'#ff7d84':l>=40?'#ffc46b':l>=30?'#c9a6ff':l>=20?'#8ab4ff':l>=10?'#8fd8a0':'#e8ecf4';
-      return '<div class="kv" style="grid-column:1/-1"><span>'+t.hero+' <span style="color:'+LVC(t.level||0)+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join(''):'<div class="kv" style="grid-column:1/-1"><span>训练</span><b>无</b></div>';
+    const rm=(s.snapshot&&s.snapshot.resources&&s.snapshot.resources.marches)||[];
+    $('trainingbox').innerHTML=tr.map(function(t){
+      return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+t.hero+' <span style="color:'+LVC(t.level||0)+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join('')
+      +rm.map(function(m){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+m.hero+' <span style="color:'+LVC(m.level||0)+'">Lv'+(m.level||'?')+'</span> <span style="color:'+(m.phase==='派遣中'?'var(--ok)':'var(--dim)')+'">'+m.phase+'</span></span><b><span class="cd" data-until="'+m.endsAt+'">'+cd(m.endsAt)+'</span></b></div>'}).join('')
+      +(res&&res.garrisons?res.garrisons.map(function(g){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+g.hero+' <span style="color:'+LVC(g.heroLevel||0)+'">Lv'+(g.heroLevel||'?')+'</span> '+g.type+'Lv'+g.level+' <span style="color:var(--acc)">占领中</span></span><b><span class="cd" data-until="'+g.endsAt+'">'+cd(g.endsAt)+'</span></b></div>'}).join(''):'')
+      +((tr.length||rm.length||(res&&res.garrisons&&res.garrisons.length))?'':'<div class="muted">无训练/行军/占领</div>');
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'){
         const dt=new Date(h.protectionEndsAt)-Date.now();
