@@ -1492,6 +1492,7 @@ class Handler(BaseHTTPRequestHandler):
             val = bool(body.get("enabled"))
             save("soulFactory", val)
             add_log("将魂工厂已" + ("开启" if val else "关闭"), "success" if val else "warn")
+            notify("将魂工厂已" + ("开启" if val else "关闭"))
             if val:
                 threading.Thread(target=lambda: [add_log("提魂(手动): " + "; ".join(r) if r else "提魂(手动): 无可提候选", "success") for r in [job_soul_factory(read_token())]], daemon=True).start()
             st, hd, bd = jresp({"ok": True, "soulFactory": val})
