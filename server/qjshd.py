@@ -599,137 +599,150 @@ def parse_appearance(text):
 def job_purple_scan():
     found = []
     auto_reserve = load("autoReserve", True) is not False
+
+    def do(token):
+        ann = api("GET", "/api/v1/home-announcements", token=token)
+        appearances = []
+        for e in ann.get("entries") or []:
+            pp = parse_appearance(e.get("content", ""))
+            if pp:
+                pp["at"] = e.get("startsAt")
+                appearances.append(pp)
+        with LOCK:
+            pcache = load("playerCache", {})
+            heroes = load("purpleHeroes", {})
+
+        # --- 阶段1：并行补齐缺失的玩家搜索 ---
+        missing = [a["owner"] for a in appearances if a["owner"] not in pcache or not pcache[a["owner"]].get("shortId")]
+        missing = list(dict.fromkeys(missing))
+        if missing:
+            ex = ThreadPoolExecutor(max_workers=6)
+            futs = {o: ex.submit(lambda o=o: api("GET", "/api/v1/player-search?type=NAME&query=" + urllib_parse.quote(o), token=token)) for o in missing}
+            ex.shutdown(wait=True)
+            for o, f in futs.items():
+                try:
+                    p0 = (f.result().get("players") or [None])[0]
+                    if p0:
+                        pcache[o] = {"playerId": p0["playerId"], "shortId": p0.get("shortId"), "level": p0.get("level")}
+                except Exception:
+                    pass
+
+        # --- 阶段2：并行拉公告涉及 + 需复核的酒馆 ---
+        want = {}  # pid -> list of ctx
+        gm = load("graveyard", {})
+        gm_fresh = {k: v for k, v in gm.items() if time.time() - _parse_ts(v) < 35 * 60}
+        if gm != gm_fresh:
+            save("graveyard", gm_fresh)
+        for a in appearances:
+            info = pcache.get(a["owner"])
+            if not info:
+                continue
+            pid = info["playerId"]
+            key = f"{pid}:{a['hero']}"
+            want.setdefault(pid, []).append({"kind": "announce", "key": key, "a": a, "info": info})
+        now = time.time()
+        for key in list(heroes.keys()):
+            h = heroes[key]
+            if h.get("status") == "GONE" and now - _parse_ts(h.get("goneAt")) > GONE_TTL_S:
+                gm_fresh[key] = h.get("foundAt") or h.get("goneAt")
+                del heroes[key]
+                continue
+            if h.get("status") == "GRABBED" and now - _parse_ts(h.get("grabbedAt")) > GRABBED_TTL_S:
+                del heroes[key]
+                continue
+            if h.get("status") != "ALIVE":
+                continue
+            # 复核范围：保护期临近结束（<15min）或较久未见（>10min）
+            pe_left = _parse_ts(h.get("protectionEndsAt")) - now
+            if pe_left > 15 * 60 and now - _parse_ts(h.get("lastSeenAt")) < 10 * 60:
+                continue
+            want.setdefault(h["playerId"], []).append({"kind": "recheck", "key": key})
+        save("graveyard", gm_fresh)
+
+        pids = list(want.keys())
+        taverns = {}
+        if pids:
+            ex = ThreadPoolExecutor(max_workers=6)
+            futs = {pid: ex.submit(lambda pid=pid: api("GET", f"/api/v1/friend-cities/{pid}/tavern", token=token)) for pid in pids}
+            ex.shutdown(wait=True)
+            for pid, f in futs.items():
+                try:
+                    taverns[pid] = f.result()
+                except Exception:
+                    taverns[pid] = None
+
+        # --- 阶段3：串行应用结果 ---
+        for pid, ctxs in want.items():
+            t = taverns.get(pid)
+            if t is None:
+                continue
+            for ctx in ctxs:
+                key = ctx["key"]
+                if ctx["kind"] == "announce":
+                    a = ctx["a"]
+                    info = ctx["info"]
+                    if heroes.get(key, {}).get("status") == "GRABBED":
+                        continue
+                    cand = next((c for c in (t.get("candidates") or []) if c["name"] == a["hero"] and c.get("quality") in PURPLE_PLUS), None)
+                    if not cand and key not in heroes and key not in gm_fresh:
+                        heroes[key] = {
+                            "key": key, "playerId": pid, "owner": a["owner"],
+                            "ownerLevel": info.get("level"), "shortId": info.get("shortId"),
+                            "hero": a["hero"], "quality": ("ORANGE" if a.get("qualityName") == "橙" else "PURPLE"),
+                            "star": a.get("star", 0), "troopType": None,
+                            "copperCost": None, "silverTicketCost": None,
+                            "foundAt": a["at"], "protectionEndsAt": None,
+                            "lastSeenAt": datetime.now(TZ).isoformat(),
+                            "status": "GONE", "goneAt": datetime.now(TZ).isoformat()}
+                    elif cand:
+                        is_new = key not in heroes or heroes[key].get("status") != "ALIVE"
+                        heroes[key] = {
+                            **heroes.get(key, {}),
+                            "key": key, "playerId": pid, "owner": a["owner"],
+                            "ownerLevel": info.get("level"), "shortId": info.get("shortId"),
+                            "hero": a["hero"], "quality": cand["quality"], "star": cand["star"],
+                            "troopType": cand.get("troopType"),
+                            "copperCost": cand.get("copperCost"), "silverTicketCost": cand.get("silverTicketCost", 0),
+                            "candidateId": cand["candidateId"], "candidateVersion": cand.get("version", 0),
+                            "foundAt": a["at"], "protectionEndsAt": t.get("protectionEndsAt"),
+                            "lastSeenAt": datetime.now(TZ).isoformat(), "status": "ALIVE"}
+                        if is_new:
+                            label = f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)"
+                            found.append(label)
+                            if _cap_full():
+                                warn_once("capFull", "自动预约时武将位已满，照常预约（到期前需腾位）")
+                                notify("武将位已满，自动预约的目标到期前需腾位")
+                            if auto_reserve and (cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5)):
+                                heroes[key]["reserved"] = True
+                                heroes[key]["reservedAt"] = datetime.now(TZ).isoformat()
+                                add_log(f"⭐ 高价值目标自动预约: {label}", "success")
+                    elif heroes.get(key, {}).get("status") == "ALIVE":
+                        heroes[key]["status"] = "GONE"
+                        heroes[key]["goneAt"] = datetime.now(TZ).isoformat()
+                else:  # recheck
+                    h = heroes.get(key)
+                    if not h or h.get("status") != "ALIVE":
+                        continue
+                    cand = next((c for c in (t.get("candidates") or []) if c.get("candidateId") == h.get("candidateId")), None)
+                    if not cand:
+                        h["status"] = "GONE"
+                        h["goneAt"] = datetime.now(TZ).isoformat()
+                    else:
+                        h["candidateVersion"] = cand.get("version", 0)
+                        h["protectionEndsAt"] = t.get("protectionEndsAt")
+                        h["lastSeenAt"] = datetime.now(TZ).isoformat()
+
+        save("playerCache", pcache)
+        save("purpleHeroes", heroes)
+
     try:
-        def do(token):
-            ann = api("GET", "/api/v1/home-announcements", token=token)
-            appearances = []
-            for e in ann.get("entries", []):
-                p = parse_appearance(e.get("content", ""))
-                if p:
-                    p["at"] = e.get("startsAt")
-                    appearances.append(p)
-            with LOCK:
-                pcache = load("playerCache", {})
-                heroes = load("purpleHeroes", {})
-                for a in appearances:
-                    try:
-                        if a["owner"] not in pcache or not pcache[a["owner"]].get("shortId"):
-                            s = api("GET", "/api/v1/player-search?type=NAME&query=" + urllib_parse.quote(a["owner"]), token=token)
-                            players = s.get("players") or []
-                            if not players:
-                                continue
-                            p0 = players[0]
-                            pcache[a["owner"]] = {"playerId": p0["playerId"], "shortId": p0.get("shortId"), "level": p0.get("level")}
-                        pid = pcache[a["owner"]]["playerId"]
-                        key = f"{pid}:{a['hero']}"
-                        if heroes.get(key, {}).get("status") == "GRABBED":
-                            continue
-                        t = api("GET", f"/api/v1/friend-cities/{pid}/tavern", token=token)
-                        cand = next((c for c in t.get("candidates", []) if c["name"] == a["hero"] and c["quality"] in PURPLE_PLUS), None)
-                        _gm = load("graveyard", {})
-                        _gm_fresh = {k: v for k, v in _gm.items() if time.time() - _parse_ts(v) < 35 * 60}
-                        if _gm != _gm_fresh:
-                            save("graveyard", _gm_fresh)
-                        if not cand and key not in heroes and key not in _gm_fresh:
-                            # 公告出现但已被抢：仍入列表（售罄态，字段取自公告文案）
-                            heroes[key] = {
-                                "key": key, "playerId": pid, "owner": a["owner"],
-                                "ownerLevel": pcache[a["owner"]].get("level"), "shortId": pcache[a["owner"]].get("shortId"),
-                                "hero": a["hero"], "quality": ("ORANGE" if a.get("qualityName") == "橙" else "PURPLE"),
-                                "star": a.get("star", 0), "troopType": None,
-                                "copperCost": None, "silverTicketCost": None,
-                                "foundAt": a["at"], "protectionEndsAt": None,
-                                "lastSeenAt": datetime.now(TZ).isoformat(),
-                                "status": "GONE", "goneAt": datetime.now(TZ).isoformat()}
-                        if cand:
-                            is_new = key not in heroes or heroes[key].get("status") != "ALIVE"
-                            heroes[key] = {**heroes.get(key, {}), "key": key, "playerId": pid, "owner": a["owner"],
-                                           "ownerLevel": pcache[a["owner"]].get("level"), "hero": a["hero"], "quality": cand["quality"],
-                                           "star": cand["star"], "troopType": cand.get("troopType"), "copperCost": cand.get("copperCost"),
-                                           "silverTicketCost": cand.get("silverTicketCost", 0), "candidateId": cand["candidateId"],
-                                           "candidateVersion": cand.get("version", 0), "foundAt": a["at"],
-                                           "protectionEndsAt": t.get("protectionEndsAt"), "lastSeenAt": datetime.now(timezone.utc).isoformat(),
-                                           "status": "ALIVE"}
-                            if is_new:
-                                label = f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)"
-                                found.append(label)
-                                if auto_reserve and (cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5)):
-                                    if _cap_full():
-                                        warn_once("capFull", "自动预约时武将位已满，照常预约（到期前需腾位）")
-                                        notify("武将位已满，自动预约的目标到期前需腾位")
-                                    heroes[key]["reserved"] = True
-                                    heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
-                                    add_log(f"⭐ 高价值目标自动预约: {label}", "success")
-                        elif heroes.get(key, {}).get("status") == "ALIVE":
-                            heroes[key]["status"] = "GONE"
-                            heroes[key]["goneAt"] = datetime.now(timezone.utc).isoformat()
-                    except Exception:
-                        pass
-                # TTL 清理 + 存活复核
-                for key in list(heroes.keys()):
-                    h = heroes[key]
-                    if h.get("status") == "GONE" and time.time() - _parse_ts(h.get("goneAt")) > GONE_TTL_S:
-                        gm = load("graveyard", {})
-                        gm[key] = h.get("foundAt") or h.get("goneAt")  # 公告时间：窗口过后墓碑失效
-                        save("graveyard", gm)
-                        del heroes[key]
-                        continue
-                    if h.get("status") == "GRABBED" and time.time() - _parse_ts(h.get("grabbedAt")) > GRABBED_TTL_S:
-                        del heroes[key]
-                        continue
-                    if h.get("status") != "ALIVE":
-                        continue
-                    if not h.get("shortId") or not pcache.get(h["owner"], {}).get("shortId"):
-                        try:
-                            s2 = api("GET", "/api/v1/player-search?type=NAME&query=" + urllib_parse.quote(h["owner"]), token=token)
-                            p0 = (s2.get("players") or [None])[0]
-                            if p0:
-                                pcache[h["owner"]] = {"playerId": p0["playerId"], "shortId": p0.get("shortId"), "level": p0.get("level")}
-                                if not h.get("playerId") or h["playerId"] == p0["playerId"]:
-                                    h["shortId"] = p0.get("shortId")
-                        except Exception:
-                            pass
-                    if any(f.startswith(h["owner"] + "家 " + h["hero"]) or (h["hero"] in f and h["owner"] in f) for f in found):
-                        continue
-                    try:
-                        t = api("GET", f"/api/v1/friend-cities/{h['playerId']}/tavern", token=token)
-                        cand = next((c for c in t.get("candidates", []) if c["candidateId"] == h.get("candidateId")), None)
-                        if not cand:
-                            h["status"] = "GONE"
-                            h["goneAt"] = datetime.now(timezone.utc).isoformat()
-                        else:
-                            h["candidateVersion"] = cand.get("version", 0)
-                            h["protectionEndsAt"] = t.get("protectionEndsAt")
-                            h["lastSeenAt"] = datetime.now(timezone.utc).isoformat()
-                    except Exception:
-                        pass
-                save("playerCache", pcache)
-                save("purpleHeroes", heroes)
         with_session(do)
     except ApiError as e:
         if e.code != "NO_TOKEN":
             add_log(f"紫将扫描失败: {e.code}", "error")
+    except Exception as e:
+        add_log(f"紫将扫描异常: {e}", "error")
     return found
-
-
-_notices = []
-_notice_seq = [0]
-
-
-def notify(msg):
-    """面板 toast 通知（status 轮询携带，前端弹提示；60 秒时效自动消失）"""
-    _notice_seq[0] += 1
-    _notices.append({"id": _notice_seq[0], "msg": msg, "at": time.time()})
-    del _notices[:-10]
-
-
-def _live_notices():
-    return [n for n in _notices if time.time() - n["at"] < 60]
-
-
-def _cap_full():
-    cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
-    return bool(cap) and cap.get("capacity", 0) > 0 and cap.get("owned", 0) >= cap.get("capacity", 0)
 
 
 def grab_hero(key, manual=False):
