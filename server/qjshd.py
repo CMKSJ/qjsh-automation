@@ -898,6 +898,8 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
             body={"operationId": op_id(), "expectedVersion": str(occ.get("occupationVersion", "0")), "heroInstanceId": None})
         add_log("资源点收获: " + str(hero_name) + " @" + str(occ.get("type", "")) + "Lv" + str(occ.get("level")), "success")
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+        time.sleep(310)  # 返程 5 分钟到家，再重派原点
+        _redispatch(hero_id, hero_name, occ.get("resourceNodeId"), occ.get("type"), occ.get("level"))
     except Exception as e:
         add_log("资源点收获失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
         return
@@ -968,14 +970,9 @@ def check_resource_timers():
         wait = _parse_ts(e.get("arrivesAt")) + 2 - time.time()
         if wait > 90 or wait < -120:
             continue
-        _is_harvest_return = (e.get("state") in ("RETURNING_SUCCESS", "COMPLETED") or e.get("action") == "HARVEST")
-        def ffire(w=wait, _e=e, _redis=_is_harvest_return):
+        def ffire(w=wait):
             time.sleep(max(0, w))
             refresh_snapshot(force=True)
-            if _redis:
-                threading.Thread(target=_redispatch, args=(
-                    _e.get("heroInstanceId"), _e.get("heroName"), _e.get("resourceNodeId"),
-                    _e.get("targetResourceType"), _e.get("targetResourceLevel")), daemon=True).start()
         th = threading.Thread(target=ffire, daemon=True)
         _res_timers[tkey] = th
         th.start()
