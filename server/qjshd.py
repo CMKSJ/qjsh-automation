@@ -538,7 +538,7 @@ def job_purple_scan():
                 heroes = load("purpleHeroes", {})
                 for a in appearances:
                     try:
-                        if a["owner"] not in pcache:
+                        if a["owner"] not in pcache or not pcache[a["owner"]].get("shortId"):
                             s = api("GET", "/api/v1/player-search?type=NAME&query=" + urllib_parse.quote(a["owner"]), token=token)
                             players = s.get("players") or []
                             if not players:
