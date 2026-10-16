@@ -160,7 +160,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
       for(const k of liveKeys){if(!knownHeroKeys.has(k)){const nh=hs.find(x=>x.key===k);const label=nh?(nh.hero+'('+nh.quality+nh.star+'星 @'+nh.owner+'家)'):k;toast('发现新目标: '+label);beep()}}
       knownHeroKeys=new Set(liveKeys);
     }
-    $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>成本</th><th>保护期</th><th>状态</th><th></th></tr>'+
+    $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>成本</th><th>保护期</th><th>状态</th><th>操作</th></tr>'+
       hs.map(h=>{const k=h.key.replace(/"/g,'&quot;');
         const stOpen=h.status==='ALIVE'&&!h.reserved&&new Date(h.protectionEndsAt)<=new Date();
         const st=h.status==='GRABBED'?'<span class="st-GRABBED">购得</span>':h.status==='GONE'?'<span class="st-GONE">售罄</span>':h.reserved?'<span class="st-ALIVE">已预约</span>':stOpen?'<span class="st-ALIVE">在售</span>':'<span class="st-ALIVE">保留</span>';
