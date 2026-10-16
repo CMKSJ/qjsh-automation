@@ -1089,7 +1089,27 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/auto-reserve":
             val = bool(body.get("enabled"))
             save("autoReserve", val)
-            add_log("自动预约已" + ("开启" if val else "暂停（不影响已有预约）"), "warn" if not val else "success")
+            with LOCK:
+                heroes = load("purpleHeroes", {})
+                changed = []
+                if val:
+                    # 开启：满足条件(橙卡 或 5星紫卡)的在售/保留武将全部预约（已过期的由蹲点循环立即抢）
+                    for k, h in heroes.items():
+                        if h.get("status") == "ALIVE" and not h.get("reserved"):
+                            if h.get("quality") == "ORANGE" or (h.get("quality") == "PURPLE" and (h.get("star") or 0) >= 5):
+                                h["reserved"] = True
+                                h["reservedAt"] = datetime.now(timezone.utc).isoformat()
+                                changed.append(f"{h['hero']}({h['quality']}{h['star']}星)")
+                    save("purpleHeroes", heroes)
+                    add_log("自动预约已开启" + (f"，批量预约 {len(changed)} 个: " + "、".join(changed) if changed else ""), "success")
+                    threading.Thread(target=check_reservations, daemon=True).start()
+                else:
+                    for k, h in heroes.items():
+                        if h.get("reserved"):
+                            h["reserved"] = False
+                            changed.append(h["hero"])
+                    save("purpleHeroes", heroes)
+                    add_log("自动预约已暂停，取消全部预约" + (f"({len(changed)} 个)" if changed else ""), "warn")
             st, hd, bd = jresp({"ok": True, "autoReserve": val})
             self._send(st, hd, bd)
             return
