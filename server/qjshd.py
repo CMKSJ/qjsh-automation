@@ -777,15 +777,25 @@ def _hero_level_map(token):
 
 
 def _pick_resource_slot(token, hero_level):
-    """检索自己家园空资源槽：等级<=武将等级里选最高级（同級随机取首个）"""
+    """检索空资源槽：守卫等级(npcLevel)<=武将等级 可打；在可打的里面选资源等级(收益)最高的。
+    守卫等级需逐点查详情（空槽列表只有资源等级），按资源等级降序逐个查，命中即停。"""
     try:
         r = api("GET", "/api/v1/territory/resources", token=token)
         empties = [s for s in (r.get("slots") or []) if not s.get("occupationId")]
-        ok = [s for s in empties if (s.get("level") or 0) <= hero_level]
-        if not ok:
-            return None
-        ok.sort(key=lambda s: -(s.get("level") or 0))
-        return ok[0]
+        empties.sort(key=lambda s: -(s.get("level") or 0))  # 资源等级降序（收益优先）
+        for s in empties:
+            try:
+                det = api("GET", "/api/v1/resource-nodes/" + s["resourceNodeId"], token=token)
+                g = det.get("garrison") or {}
+                guard_lv = g.get("npcLevel") or g.get("level") or s.get("level") or 0
+                if g.get("kind") == "PLAYER":
+                    guard_lv = 999  # 玩家驻守的点不自动挑战
+                if guard_lv <= hero_level:
+                    s["guardLevel"] = guard_lv
+                    return s
+            except Exception:
+                continue
+        return None
     except Exception:
         return None
 
@@ -815,7 +825,7 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
             "operationId": op_id(), "action": "OCCUPY",
             "heroInstanceId": hero_id, "resourceNodeId": slot["resourceNodeId"],
             "expectedVersion": str(slot.get("version", "0")), "forcePaymentMethod": None})
-        add_log("重派: " + str(hero_name) + "(Lv" + str(hero_level) + ") -> " + str(slot.get("type")) + "Lv" + str(slot.get("level")), "success")
+        add_log("重派: " + str(hero_name) + "(Lv" + str(hero_level) + ") -> " + str(slot.get("type")) + "资源Lv" + str(slot.get("level")) + "(守卫Lv" + str(slot.get("guardLevel")) + ")", "success")
     except Exception as e:
         add_log("重派失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
 
