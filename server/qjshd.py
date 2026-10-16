@@ -483,7 +483,7 @@ def job_hourly(active=False):
             elif tickets > 0:
                 out.append(f"兑换跳过: 需{copper_need}铜 仅有{copper}")
             else:
-                out.append("兑换跳过: " + (skip_reason or f"粮草 {prov}/{prov_cap} 下一小时不会溢出"))
+                out.append(f"兑换跳过: 粮草 {prov}/{prov_cap} 下一小时不会溢出")
 
             market = api("GET", "/api/v1/home/market", token=token)
             if market.get("collectionStatus") == "READY":
