@@ -931,14 +931,21 @@ def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
         if "OCCUPY" not in (det.get("availableActions") or []):
             add_log(f"重派取消({hero_name}): 原点不可占领(被占/失效)")
             return
-        api("POST", "/api/v1/resource-marches", token=tok, body={
-            "operationId": op_id(), "action": "OCCUPY",
-            "heroInstanceId": hero_id, "resourceNodeId": node_id,
-            "expectedVersion": str(det.get("version", "0")), "forcePaymentMethod": None})
-        add_log(f"重派: {hero_name} -> {node_type}Lv{node_level}(原点)", "success")
-        threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
-    except Exception as e:
-        add_log(f"重派失败({hero_name}): {getattr(e, 'code', e)}", "error")
+        for attempt in range(3):
+            try:
+                api("POST", "/api/v1/resource-marches", token=tok, body={
+                    "operationId": op_id(), "action": "OCCUPY",
+                    "heroInstanceId": hero_id, "resourceNodeId": node_id,
+                    "expectedVersion": str(det.get("version", "0")), "forcePaymentMethod": None})
+                add_log(f"重派: {hero_name} -> {node_type}Lv{node_level}(原点, 第{attempt+1}次尝试)", "success")
+                threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+                return
+            except Exception as e:
+                code = getattr(e, 'code', '')
+                last = f"{code}: {e}"
+                if attempt < 2:
+                    time.sleep(20)  # 到家落位可能延迟，20s 后重试
+        add_log(f"重派失败({hero_name}): {last}", "error")
 
 
 def check_resource_timers():
