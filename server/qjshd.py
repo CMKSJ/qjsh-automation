@@ -649,9 +649,8 @@ def job_purple_scan():
                                 found.append(label)
                                 if auto_reserve and (cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5)):
                                     if _cap_full():
-                                        warn_once("capFull", "自动预约跳过: 武将位已满")
-                                    else:
-                                        heroes[key]["reserved"] = True
+                                        warn_once("capFull", "自动预约时武将位已满，照常预约（到期前需腾位）")
+                                    heroes[key]["reserved"] = True
                                     heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                     add_log(f"⭐ 高价值目标自动预约: {label}", "success")
                         elif heroes.get(key, {}).get("status") == "ALIVE":
@@ -1244,13 +1243,10 @@ class Handler(BaseHTTPRequestHandler):
                 heroes = load("purpleHeroes", {})
                 changed = []
                 if val:
+                    _full_note = ""
                     if _cap_full():
                         cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
-                        save("purpleHeroes", heroes)
-                        add_log(f"自动预约已开启，但武将位已满 {cap.get('owned')}/{cap.get('capacity')}，未批量预约（腾位后可再切换开关触发）", "warn")
-                        st, hd, bd = jresp({"ok": True, "autoReserve": val})
-                        self._send(st, hd, bd)
-                        return
+                        _full_note = f"（注意: 武将位已满 {cap.get('owned')}/{cap.get('capacity')}，到期前需腾位）"
                     # 开启：满足条件(橙卡 或 5星紫卡)的在售/保留武将全部预约（已过期的由蹲点循环立即抢）
                     for k, h in heroes.items():
                         if h.get("status") == "ALIVE" and not h.get("reserved"):
@@ -1259,7 +1255,7 @@ class Handler(BaseHTTPRequestHandler):
                                 h["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                 changed.append(f"{h['hero']}({h['quality']}{h['star']}星)")
                     save("purpleHeroes", heroes)
-                    add_log("自动预约已开启" + (f"，批量预约 {len(changed)} 个: " + "、".join(changed) if changed else ""), "success")
+                    add_log(("自动预约已开启" + (f"，批量预约 {len(changed)} 个: " + "、".join(changed) if changed else "自动预约已开启")) + _full_note, "success" if not _full_note else "warn")
                     threading.Thread(target=check_reservations, daemon=True).start()
                 else:
                     for k, h in heroes.items():
