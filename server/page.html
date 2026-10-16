@@ -14,6 +14,11 @@ h1 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .cur{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
 .cur span b{font-size:16px}
 .log{max-height:340px;overflow-y:auto;font-size:12.5px}
+.log::-webkit-scrollbar{width:8px}
+.log::-webkit-scrollbar-thumb{background:#2a3550;border-radius:4px}
+.log::-webkit-scrollbar-thumb:hover{background:#3a4868}
+.log::-webkit-scrollbar-track{background:transparent}
+.log{scrollbar-width:thin;scrollbar-color:#2a3550 transparent}
 .log div{padding:4px 0;border-bottom:1px solid #202a40;display:flex;gap:8px}
 .log time{color:var(--dim);flex-shrink:0;font-variant-numeric:tabular-nums}
 .lv-success{color:var(--ok)}.lv-error{color:var(--err)}.lv-warn{color:var(--warn)}
