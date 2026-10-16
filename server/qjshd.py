@@ -149,9 +149,6 @@ def read_token():
 
 
 def report_token(token):
-    act = load("activity", {})
-    act["fingerprint"] = None  # 重置活跃基线
-    save("activity", act)
     save("token", {"token": token, "reportedAt": datetime.now(timezone.utc).isoformat(), "expiresAt": _now_ms() + 6 * 86400_000})
 
 
@@ -198,6 +195,19 @@ def write_snapshot(token, home, force=False):
         slots = territory["slots"] if territory else 2
         nxt = min((_parse_ts(o.get("occupiedAt")) + 8 * 3600 - time.time() for o in occs), default=None)
         resources = {"occupied": len(occs), "slots": slots, "nextHarvestIn": (round(nxt) if nxt is not None else None)}
+        try:
+            mi = api("GET", "/api/v1/military-intelligence", token=token)
+            by_node = {e.get("resourceNodeId"): e for e in (mi.get("entries") or [])}
+            hl = api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or []
+            lvmap = {h["heroInstanceId"]: h.get("level") for h in hl}
+            resources["garrisons"] = [
+                {"hero": by_node.get(o.get("resourceNodeId"), {}).get("heroName"),
+                 "heroLevel": lvmap.get(by_node.get(o.get("resourceNodeId"), {}).get("heroInstanceId")),
+                 "type": o.get("type"), "level": o.get("level"),
+                 "endsAt": (datetime.fromtimestamp(_parse_ts(o.get("occupiedAt")) + 8 * 3600, timezone.utc).isoformat())}
+                for o in occs]
+        except Exception:
+            pass
     except Exception:
         pass
     snap = {
@@ -755,6 +765,95 @@ def check_training_timers():
         th.start()
 
 
+_res_timers = {}
+
+
+def _hero_level_map(token):
+    try:
+        hl = api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or []
+        return {h["heroInstanceId"]: h for h in hl}
+    except Exception:
+        return {}
+
+
+def _pick_resource_slot(token, hero_level):
+    """检索自己家园空资源槽：等级<=武将等级里选最高级（同級随机取首个）"""
+    try:
+        r = api("GET", "/api/v1/territory/resources", token=token)
+        empties = [s for s in (r.get("slots") or []) if not s.get("occupationId")]
+        ok = [s for s in empties if (s.get("level") or 0) <= hero_level]
+        if not ok:
+            return None
+        ok.sort(key=lambda s: -(s.get("level") or 0))
+        return ok[0]
+    except Exception:
+        return None
+
+
+def _resource_flow(occ, hero_id, hero_name, hero_level):
+    """单点全流程：到点收获 -> 等5分钟返程 -> 检索重派同一武将"""
+    try:
+        tok = read_token()
+        if not tok:
+            return
+        api("POST", "/api/v1/resource-occupations/" + occ["occupationId"] + "/harvests", token=tok,
+            body={"operationId": op_id(), "expectedVersion": str(occ.get("occupationVersion", "0")), "heroInstanceId": None})
+        add_log("资源点收获: " + str(hero_name) + " @" + str(occ.get("type", "")) + "Lv" + str(occ.get("level")), "success")
+    except Exception as e:
+        add_log("资源点收获失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
+        return
+    time.sleep(305)  # 返程 5 分钟
+    try:
+        tok = read_token()
+        if not tok:
+            return
+        slot = _pick_resource_slot(tok, hero_level)
+        if not slot:
+            add_log("重派跳过(" + str(hero_name) + "): 无不超过 Lv" + str(hero_level) + " 的空资源槽")
+            return
+        api("POST", "/api/v1/resource-marches", token=tok, body={
+            "operationId": op_id(), "action": "OCCUPY",
+            "heroInstanceId": hero_id, "resourceNodeId": slot["resourceNodeId"],
+            "expectedVersion": str(slot.get("version", "0")), "forcePaymentMethod": None})
+        add_log("重派: " + str(hero_name) + "(Lv" + str(hero_level) + ") -> " + str(slot.get("type")) + "Lv" + str(slot.get("level")), "success")
+    except Exception as e:
+        add_log("重派失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
+
+
+def check_resource_timers():
+    """每分钟：对满8h进入90s窗口的占领安排精确触发线程"""
+    try:
+        d = with_session(lambda tok: api("GET", "/api/v1/resource-occupations", token=tok))
+        mi = with_session(lambda tok: api("GET", "/api/v1/military-intelligence", token=tok))
+    except Exception:
+        return
+    hero_by_node = {}
+    for e in (mi.get("entries") or []):
+        if e.get("resourceNodeId") and e.get("heroInstanceId"):
+            hero_by_node[e["resourceNodeId"]] = e
+    for occ in d.get("occupations") or []:
+        oid = occ["occupationId"]
+        th = _res_timers.get(oid)
+        if th and th.is_alive():
+            continue
+        wait = _parse_ts(occ.get("occupiedAt")) + 8 * 3600 - time.time()
+        if wait > 90:
+            continue
+        ent = hero_by_node.get(occ.get("resourceNodeId")) or {}
+        hero_id = ent.get("heroInstanceId")
+        hero_name = ent.get("heroName") or occ.get("occupierDisplayName")
+        if not hero_id:
+            continue
+        hl = _hero_level_map(read_token()).get(hero_id, {})
+        hero_level = hl.get("level") or 30
+        def fire(w=wait, o=occ, hid=hero_id, hn=hero_name, hlv=hero_level):
+            time.sleep(max(0, w))
+            _resource_flow(o, hid, hn, hlv)
+        th = threading.Thread(target=fire, daemon=True)
+        _res_timers[oid] = th
+        th.start()
+
+
 def check_reservations():
     with LOCK:
         heroes = load("purpleHeroes", {})
@@ -793,12 +892,10 @@ def tick():
         warn_once("noToken", "尚无 accessToken：请在手机游戏页面点一下书签上报（见面板顶部说明）")
         return
 
-    # 采样 + 活跃检测
-    player_active = False
+    # 采样
     try:
         home = with_session(lambda tok: api("GET", "/api/v1/home", token=tok))
         write_snapshot(read_token(), home)
-        player_active = track_activity(home)
     except Exception:
         pass
 
@@ -850,6 +947,7 @@ def tick():
                 add_log(f"发现紫将: {f}", "success")
 
         check_training_timers()
+        check_resource_timers()
         check_reservations()
     except Exception as e:
         add_log(f"调度异常: {e}", "error")
@@ -914,7 +1012,6 @@ class Handler(BaseHTTPRequestHandler):
                     "log": load("log", []),
                     "snapshot": load("snapshot", {}),
                     "paused": load("paused", False) is True,
-                    "activity": {k: v for k, v in load("activity", {}).items() if k != "fingerprint"},
                 }
             t = data["token"]
             t["hasToken"] = bool(read_token())
