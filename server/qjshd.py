@@ -626,7 +626,11 @@ def job_purple_scan():
                             continue
                         t = api("GET", f"/api/v1/friend-cities/{pid}/tavern", token=token)
                         cand = next((c for c in t.get("candidates", []) if c["name"] == a["hero"] and c["quality"] in PURPLE_PLUS), None)
-                        if not cand and key not in heroes:
+                        _gm = load("graveyard", {})
+                        _gm_fresh = {k: v for k, v in _gm.items() if time.time() - _parse_ts(v) < 35 * 60}
+                        if _gm != _gm_fresh:
+                            save("graveyard", _gm_fresh)
+                        if not cand and key not in heroes and key not in _gm_fresh:
                             # 公告出现但已被抢：仍入列表（售罄态，字段取自公告文案）
                             heroes[key] = {
                                 "key": key, "playerId": pid, "owner": a["owner"],
@@ -665,6 +669,9 @@ def job_purple_scan():
                 for key in list(heroes.keys()):
                     h = heroes[key]
                     if h.get("status") == "GONE" and time.time() - _parse_ts(h.get("goneAt")) > GONE_TTL_S:
+                        gm = load("graveyard", {})
+                        gm[key] = h.get("foundAt") or h.get("goneAt")  # 公告时间：窗口过后墓碑失效
+                        save("graveyard", gm)
                         del heroes[key]
                         continue
                     if h.get("status") == "GRABBED" and time.time() - _parse_ts(h.get("grabbedAt")) > GRABBED_TTL_S:
