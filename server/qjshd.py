@@ -650,6 +650,7 @@ def job_purple_scan():
                                 if auto_reserve and (cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5)):
                                     if _cap_full():
                                         warn_once("capFull", "自动预约时武将位已满，照常预约（到期前需腾位）")
+                                        notify("武将位已满，自动预约的目标到期前需腾位")
                                     heroes[key]["reserved"] = True
                                     heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                     add_log(f"⭐ 高价值目标自动预约: {label}", "success")
@@ -700,6 +701,21 @@ def job_purple_scan():
         if e.code != "NO_TOKEN":
             add_log(f"紫将扫描失败: {e.code}", "error")
     return found
+
+
+_notices = []
+_notice_seq = [0]
+
+
+def notify(msg):
+    """面板 toast 通知（status 轮询携带，前端弹提示；60 秒时效自动消失）"""
+    _notice_seq[0] += 1
+    _notices.append({"id": _notice_seq[0], "msg": msg, "at": time.time()})
+    del _notices[:-10]
+
+
+def _live_notices():
+    return [n for n in _notices if time.time() - n["at"] < 60]
 
 
 def _cap_full():
@@ -1182,6 +1198,7 @@ class Handler(BaseHTTPRequestHandler):
                     "snapshot": load("snapshot", {}),
                     "paused": load("paused", False) is True,
                     "autoReserve": load("autoReserve", True) is not False,
+                    "notices": _live_notices(),
                 }
             t = data["token"]
             t["hasToken"] = bool(read_token())
@@ -1244,9 +1261,11 @@ class Handler(BaseHTTPRequestHandler):
                 changed = []
                 if val:
                     _full_note = ""
+                    _full_note = ""
                     if _cap_full():
                         cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
                         _full_note = f"（注意: 武将位已满 {cap.get('owned')}/{cap.get('capacity')}，到期前需腾位）"
+                        notify(f"武将位已满 {cap.get('owned')}/{cap.get('capacity')}，已预约目标到期前需腾位")
                     # 开启：满足条件(橙卡 或 5星紫卡)的在售/保留武将全部预约（已过期的由蹲点循环立即抢）
                     for k, h in heroes.items():
                         if h.get("status") == "ALIVE" and not h.get("reserved"):

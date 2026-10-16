@@ -89,6 +89,7 @@ async function render(){
     $('tokbanner').hidden=hasTok;
     if(!hasTok)$('bmcode').textContent=BM;
     $('hserver').textContent=(s.state?.serverId||'');
+    try{const seen=JSON.parse(localStorage.getItem('nids')||'[]');(s.notices||[]).forEach(function(n){if(seen.indexOf(n.id)<0){toast(n.msg,false);seen.push(n.id)}});localStorage.setItem('nids',JSON.stringify(seen.slice(-30)))}catch(e){}
     $('hdot').style.background=hasTok?'var(--ok)':'var(--err)';
     if(s.snapshot?.player){const p=s.snapshot.player;$('player').innerHTML='<b>'+p.displayName+'</b> Lv'+p.level+' · 战力 '+fmt(p.combatPower||0)}else if(s.token&&s.token.token){$('player').textContent='token 已生效，账号数据将在整点任务时刷新'}
     $('cur').innerHTML=(s.snapshot?.currencies||[]).filter(c=>c.code!=='PROVISIONS').map(c=>'<span>'+(CUR[c.code]||c.code)+' <b>'+fmt(c.balance)+'</b></span>').join('');
@@ -102,6 +103,7 @@ async function render(){
     $('sndbtn').textContent=soundOn?'🔔':'🔕';$('sndbtn').title=soundOn?'提示音已开启，点击关闭':'提示音已关闭，点击开启';$('sndbtn').style.opacity=soundOn?'1':'0.5';
     const act=s.activity||{};
     $('hserver').textContent=(s.state?.serverId||'');
+    try{const seen=JSON.parse(localStorage.getItem('nids')||'[]');(s.notices||[]).forEach(function(n){if(seen.indexOf(n.id)<0){toast(n.msg,false);seen.push(n.id)}});localStorage.setItem('nids',JSON.stringify(seen.slice(-30)))}catch(e){}
     window.__paused=!!s.paused;
     $('pauser').textContent=window.__paused?'▶':'⏸';
     $('runstate').textContent=window.__paused?'已暂停':'运行中';
