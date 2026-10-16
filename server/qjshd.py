@@ -221,8 +221,10 @@ def write_snapshot(token, home, force=False):
     }
     try:
         tr = api("GET", "/api/v1/hero-training", token=token)
+        lv = {h["heroInstanceId"]: h.get("level") for h in (api("GET", "/api/v1/heroes?limit=50", token=token).get("heroes") or [])}
         snap["training"] = [
             {"hero": (s.get("session") or {}).get("heroName"),
+             "level": lv.get((s.get("session") or {}).get("heroInstanceId")),
              "plan": (s.get("session") or {}).get("planCode"),
              "endsAt": (s.get("session") or {}).get("endsAt")}
             for s in (tr.get("slots") or []) if s.get("session")]
@@ -521,6 +523,7 @@ def parse_appearance(text):
 
 def job_purple_scan():
     found = []
+    auto_reserve = load("autoReserve", True) is not False
     try:
         def do(token):
             ann = api("GET", "/api/v1/home-announcements", token=token)
@@ -560,7 +563,7 @@ def job_purple_scan():
                             if is_new:
                                 label = f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)"
                                 found.append(label)
-                                if cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5):
+                                if auto_reserve and (cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5)):
                                     heroes[key]["reserved"] = True
                                     heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                     add_log(f"⭐ 高价值目标自动预约: {label}", "success")
@@ -1007,6 +1010,7 @@ class Handler(BaseHTTPRequestHandler):
                     "log": load("log", []),
                     "snapshot": load("snapshot", {}),
                     "paused": load("paused", False) is True,
+                    "autoReserve": load("autoReserve", True) is not False,
                 }
             t = data["token"]
             t["hasToken"] = bool(read_token())
@@ -1059,6 +1063,13 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     add_log("accessToken 已上报 ✓（验证请求延迟，不影响使用）（书签）", "success")
                     st, hd, bd = jresp({"ok": True})
+            self._send(st, hd, bd)
+            return
+        if route == "/api/auto-reserve":
+            val = bool(body.get("enabled"))
+            save("autoReserve", val)
+            add_log("自动预约已" + ("开启" if val else "暂停（不影响已有预约）"), "warn" if not val else "success")
+            st, hd, bd = jresp({"ok": True, "autoReserve": val})
             self._send(st, hd, bd)
             return
         if route == "/api/pause":

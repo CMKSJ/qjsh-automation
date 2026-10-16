@@ -38,7 +38,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #tokbanner ol{margin:6px 0 0 18px;font-size:12.5px}
 </style></head><body>
 <div id="toast"></div>
-<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span><button id="sndbtn" class="ghost" style="padding:2px 8px;margin-left:auto;font-size:15px" onclick="toggleSnd()">🔔</button></h1>
+<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span><button id="sndbtn" class="ghost" style="padding:2px 8px;margin-left:auto;font-size:15px" onclick="toggleSnd()">🔔</button><button id="pauser" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="togglePause()">⏸</button></h1>
 <div class="card" id="tokbanner" hidden>
   <h2>尚未上报 accessToken</h2>
   <ol>
@@ -56,9 +56,8 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
     <button class="soft" onclick="job('signin')">立即签到</button>
     <button class="soft" onclick="job('hourly')">立即整点任务</button>
     <button class="soft" onclick="job('mine')">开采一次</button>
-    <button id="pauser" class="soft" onclick="togglePause()">暂停自动化</button>
-  </div></div>
-<div class="card"><h2>稀有武将监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button class="soft" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
+  </div><div class="grid" id="trainingbox"></div></div>
+<div class="card"><h2>酒馆监控 <span class="tag">公告每5分钟轮询</span> <span class="tag" id="herocap"></span><button id="autores" class="ghost" style="padding:3px 10px" onclick="toggleAutoRes()">自动预约</button><button class="soft" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
@@ -77,7 +76,7 @@ function copyBM(){var t=$('bmcode').textContent||BM;function ok(){toast('已复�
 const CUR={COPPER:'铜钱',YUANBAO:'元宝',SILVER_TICKET:'银票',PROVISIONS:'粮草',BATTLE_ACHIEVEMENT:'战功'};
 function fmt(n){return (+n).toLocaleString('zh-CN')}
 function fmtBJ(iso){var d=new Date(iso);if(isNaN(d))return '';d=new Date(d.getTime()+8*3600e3);var p=x=>String(x).padStart(2,'0');return p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
-function cd(iso){const s=Math.floor((new Date(iso)-Date.now())/1000);return s>0?Math.floor(s/60)+'分'+String(s%60).padStart(2,'0')+'秒':'—'}
+function cd(iso){const s=Math.floor((new Date(iso)-Date.now())/1000);if(s<=0)return '—';const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h>0?h+'小时'+m+'分':m+'分'+String(s%60).padStart(2,'0')+'秒'}
 setInterval(function(){document.querySelectorAll('.cd[data-until]').forEach(function(e){e.textContent=cd(e.getAttribute('data-until'))})},1000);
 const inflight=new Set();
 let knownHeroKeys=null;
@@ -87,7 +86,7 @@ async function render(){
     const hasTok=!!(s.token&&s.token.hasToken);
     $('tokbanner').hidden=hasTok;
     if(!hasTok)$('bmcode').textContent=BM;
-    $('hserver').textContent=hasTok?('token '+fmtBJ(s.token.reportedAt)+' 上报'):'';
+    $('hserver').textContent=(s.state?.serverId||'');
     $('hdot').style.background=hasTok?'var(--ok)':'var(--err)';
     if(s.snapshot?.player){const p=s.snapshot.player;$('player').innerHTML='<b>'+p.displayName+'</b> Lv'+p.level+' · 战力 '+fmt(p.combatPower||0)}else if(s.token&&s.token.token){$('player').textContent='token 已生效，账号数据将在整点任务时刷新'}
     $('cur').innerHTML=(s.snapshot?.currencies||[]).filter(c=>c.code!=='PROVISIONS').map(c=>'<span>'+(CUR[c.code]||c.code)+' <b>'+fmt(c.balance)+'</b></span>').join('');
@@ -102,20 +101,26 @@ async function render(){
     const act=s.activity||{};
     $('hserver').textContent=(s.state?.serverId||'')+(act.active?' · 🟢玩家活跃(自动暂停中)':' · ⚪玩家离线(自动运行)');
     window.__paused=!!s.paused;
-    $('pauser').textContent=window.__paused?'恢复自动化':'暂停自动化';
+    $('pauser').textContent=window.__paused?'▶':'⏸';
     $('pauser').style.borderColor=window.__paused?'var(--err)':'';
     $('pauser').style.color=window.__paused?'var(--err)':'';
-    $('pauser').style.background=window.__paused?'rgba(229,100,108,.13)':'';
-    $('herocap').textContent=window.__cap?('武将 '+window.__cap.owned+'/'+window.__cap.capacity+(window.__cap.owned>=window.__cap.capacity?' (满)':'')):'';
-    $('daily').innerHTML=[
-      ['签到',d.signin?'✓ 已完成':'待 00:01'],
-      ['矿山',d.mining+'/10 次'],
-      ['整点任务',hrs+' 次'],
-      ['粮草',provNow+'/'+provCap],
-      ['领地',(s.snapshot&&s.snapshot.territory)?(s.snapshot.territory.cities+'/'+s.snapshot.territory.slots):'-'],
-      ['资源点',(s.snapshot&&s.snapshot.resources)?(s.snapshot.resources.occupied+'/'+s.snapshot.resources.slots):'-'],
-      ['训练',(s.snapshot&&s.snapshot.training&&s.snapshot.training.length)?s.snapshot.training.map(function(t){return t.hero+'('+String(t.plan||'').replace(/_?[0-9]+H$/,'')+') <span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span>'}).join(' · '):'无'],
-    ].map(([k,v])=>'<div class="kv"><span>'+k+'</span><b>'+v+'</b></div>').join('');
+        if(window.__cap){const full=window.__cap.owned>=window.__cap.capacity;$('herocap').innerHTML='武将 <span style="color:'+(full?'var(--err)':'var(--ok)')+'">'+window.__cap.owned+'</span>/<span style="color:var(--acc)">'+window.__cap.capacity+'</span>';}else{$('herocap').textContent='';}
+    window.__autoReserve=s.autoReserve!==false;
+    $('autores').textContent=window.__autoReserve?'自动预约':'暂停收购';
+    $('autores').style.color=window.__autoReserve?'var(--ok)':'var(--err)';
+    $('autores').style.borderColor=window.__autoReserve?'':'var(--err)';
+    const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
+    const xy=(x,y)=>'<span style="color:'+(x>=y?'var(--acc)':'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
+    let dh='';
+    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a href="javascript:job(\'signin\')" style="color:var(--acc)">立即签到</a>')+'</b></div>';
+    dh+='<div class="kv"><span>矿山'+(d.mining<10?' <a href="javascript:job(\'mine\')" style="color:var(--acc);font-size:11px">开采</a>':'')+'</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10</b></div>';
+    dh+='<div class="kv"><span>整点任务 <a href="javascript:job(\'hourly\')" style="color:var(--acc);font-size:11px">立即执行</a></span><b>'+hrs+' 次</b></div>';
+    dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap)+'</b></div>';
+    dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
+    dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
+    $('daily').innerHTML=dh;
+    const tr=(s.snapshot&&s.snapshot.training)||[];
+    $('trainingbox').innerHTML=tr.length?tr.map(function(t){return '<div class="kv" style="grid-column:1/-1"><span>'+t.hero+' Lv'+(t.level||'?')+'</span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join(''):'<div class="kv" style="grid-column:1/-1"><span>训练</span><b>无</b></div>';
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'){
         const dt=new Date(h.protectionEndsAt)-Date.now();
@@ -168,8 +173,9 @@ async function render(){
   }catch(e){if(e!==0)console.error(e)}
 }
 function capFull(){const c=window.__cap;return !!(c&&c.capacity>0&&c.owned>=c.capacity)}
+async function toggleAutoRes(){await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
-async function res(k){const h=window.__heroes&&window.__heroes[k];if((!h||!h.reserved)&&capFull())toast('快照显示武将位已满('+window.__cap.owned+'/'+window.__cap.capacity+')，若已腾位置可忽略(到期按实时容量校验)',false);await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
+async function res(k){await req('reserve',{method:'POST',body:JSON.stringify({key:k})});render()}
 async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
 async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});const res=r.result;let txt=Array.isArray(res)?res.join('\n'):(''+res);if(r.found&&r.found.length)txt+='\n'+r.found.join('\n');toast(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
