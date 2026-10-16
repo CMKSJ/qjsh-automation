@@ -8,6 +8,7 @@ h1{font-size:18px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 h1 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
 .card h2{font-size:14px;color:var(--dim);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
+.card h2 button{height:26px;line-height:1;padding:2px 8px;font-size:14px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
 .kv{display:flex;justify-content:space-between;gap:10px;padding:6px 10px;background:#131a29;border-radius:8px;font-size:13px;white-space:nowrap}
 .kv b{color:var(--acc)}
@@ -56,10 +57,10 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
   <button class="ghost" onclick="copyBM()" style="margin-top:8px">复制书签代码</button>
 </div>
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
-<div class="card"><h2>今日任务<button id="soulbtn" class="ghost" style="margin-left:auto;padding:2px 8px;font-size:14px;height:26px;line-height:1" onclick="toggleSoul()">⚒</button><button class="soft" style="padding:2px 8px;font-size:14px;height:26px;line-height:1" onclick="job('refresh')" title="刷新信息">🔄</button></h2><div class="grid" id="daily"></div>
+<div class="card"><h2>今日任务<button id="soulbtn" class="ghost" style="margin-left:auto" onclick="toggleSoul()">⚒</button><button class="soft" onclick="job('refresh')" title="刷新信息">🔄</button></h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
   </div><div id="trainingbox" style="margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:8px 12px"></div></div>
-<div class="card"><h2>酒馆监控 <span class="tag" id="arstate"></span> <span class="tag" id="herocap" style="margin-left:auto"></span><button id="autores" class="soft" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleAutoRes()">🎯</button><button class="soft" style="padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
+<div class="card"><h2>酒馆监控 <span class="tag" id="arstate"></span> <span class="tag" id="herocap" style="margin-left:auto"></span><button id="autores" class="soft" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleAutoRes()">🎯</button><button class="soft" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
