@@ -256,10 +256,17 @@ def write_snapshot(token, home, force=False):
                  "nextHarvestIn": (round(nxt) if nxt is not None else None),
                  "garrisons": [
                      {"hero": e.get("heroName"), "type": e.get("targetResourceType"),
-                      "level": e.get("targetResourceLevel"),
+                      "level": e.get("targetResourceLevel"), "nodeId": e.get("resourceNodeId"),
+                      "heroId": e.get("heroInstanceId"),
+                      "occupiedAt": e.get("occurredAt"),
                       "phase": ("占领中" if e.get("state") == "GARRISONED" else ("派遣中" if e.get("state") == "OUTBOUND" else "回城中")),
                       "endsAt": (datetime.fromtimestamp(_parse_ts(e.get("occurredAt")) + 8 * 3600, timezone.utc).isoformat() if e.get("state") == "GARRISONED" else e.get("arrivesAt"))}
                      for e in (garrisoned + outbound + returning)]}
+    _tok = read_token()
+    for _g in resources.get("garrisons", []):
+        if _g.get("phase") == "占领中" and _g.get("nodeId"):
+            _g["endsAt"] = (datetime.fromtimestamp(
+                _parse_ts(_g["occupiedAt"]) + _node_hours(_tok, _g["nodeId"]) * 3600, timezone.utc).isoformat())
 
     snap = {
         "at": datetime.now(timezone.utc).isoformat(),
@@ -894,7 +901,44 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
     except Exception as e:
         add_log("资源点收获失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
         return
-    _ = (hero_id, hero_level)  # 自动重派已移除：仅到点收获
+        # 收获后武将返程；返程到家由行军到点 timer 触发重派原点
+
+
+def _node_hours(token, node_id, default=8):
+    """资源点产出周期(node.completeHours)，缓存于 nodeCache"""
+    try:
+        cache = load("nodeCache", {})
+        if node_id in cache:
+            return cache[node_id]
+        det = api("GET", "/api/v1/resource-nodes/" + node_id, token=token)
+        hp = (det.get("harvestPreview") or {})
+        h = hp.get("completeHours") or default
+        cache[node_id] = h
+        save("nodeCache", cache)
+        return h
+    except Exception:
+        return default
+
+
+def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
+    """回城后重派至原资源点"""
+    try:
+        tok = read_token()
+        if not tok:
+            return
+        time.sleep(5)  # 等武将落位到家
+        det = api("GET", "/api/v1/resource-nodes/" + node_id, token=tok)
+        if "OCCUPY" not in (det.get("availableActions") or []):
+            add_log(f"重派取消({hero_name}): 原点不可占领(被占/失效)")
+            return
+        api("POST", "/api/v1/resource-marches", token=tok, body={
+            "operationId": op_id(), "action": "OCCUPY",
+            "heroInstanceId": hero_id, "resourceNodeId": node_id,
+            "expectedVersion": str(det.get("version", "0")), "forcePaymentMethod": None})
+        add_log(f"重派: {hero_name} -> {node_type}Lv{node_level}(原点)", "success")
+        threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+    except Exception as e:
+        add_log(f"重派失败({hero_name}): {getattr(e, 'code', e)}", "error")
 
 
 def check_resource_timers():
@@ -915,9 +959,14 @@ def check_resource_timers():
         wait = _parse_ts(e.get("arrivesAt")) + 2 - time.time()
         if wait > 90 or wait < -120:
             continue
-        def ffire(w=wait):
+        _is_harvest_return = (e.get("state") in ("RETURNING_SUCCESS", "COMPLETED") or e.get("action") == "HARVEST")
+        def ffire(w=wait, _e=e, _redis=_is_harvest_return):
             time.sleep(max(0, w))
             refresh_snapshot(force=True)
+            if _redis:
+                threading.Thread(target=_redispatch, args=(
+                    _e.get("heroInstanceId"), _e.get("heroName"), _e.get("resourceNodeId"),
+                    _e.get("targetResourceType"), _e.get("targetResourceLevel")), daemon=True).start()
         th = threading.Thread(target=ffire, daemon=True)
         _res_timers[tkey] = th
         th.start()
@@ -930,7 +979,9 @@ def check_resource_timers():
         th = _res_timers.get(oid)
         if th and th.is_alive():
             continue
-        wait = _parse_ts(occ.get("occupiedAt")) + 8 * 3600 - time.time()
+        _tok = read_token()
+        _hours = _node_hours(_tok, occ.get("resourceNodeId")) if _tok else 8
+        wait = _parse_ts(occ.get("occupiedAt")) + _hours * 3600 - time.time()
         if wait > 90:
             continue
         ent = hero_by_node.get(occ.get("resourceNodeId")) or {}
