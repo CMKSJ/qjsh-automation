@@ -650,7 +650,8 @@ def job_purple_scan():
                                 if auto_reserve and (cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5)):
                                     if _cap_full():
                                         warn_once("capFull", "自动预约跳过: 武将位已满")
-                                    heroes[key]["reserved"] = True
+                                    else:
+                                        heroes[key]["reserved"] = True
                                     heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                     add_log(f"⭐ 高价值目标自动预约: {label}", "success")
                         elif heroes.get(key, {}).get("status") == "ALIVE":
