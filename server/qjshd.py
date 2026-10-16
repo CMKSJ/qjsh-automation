@@ -92,6 +92,8 @@ def add_log(msg, level="info"):
         _n = datetime.now(TZ)
         log.insert(0, {"t": _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond // 1000:03d}+08:00", "msg": msg, "level": level})
         del log[LOG_MAX:]
+        _cutoff = time.time() - 86400
+        log[:] = [l for l in log if _parse_ts(l.get("t", "")) >= _cutoff]
         save("log", log)
 
 
@@ -963,12 +965,12 @@ def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
         if not tok:
             return
         time.sleep(5)  # 等武将落位到家
-        det = api("GET", "/api/v1/resource-nodes/" + node_id, token=tok)
-        if "OCCUPY" not in (det.get("availableActions") or []):
-            add_log(f"重派取消({hero_name}): 原点不可占领(被占/失效)")
-            return
         for attempt in range(3):
             try:
+                det = api("GET", "/api/v1/resource-nodes/" + node_id, token=tok)
+                if "OCCUPY" not in (det.get("availableActions") or []):
+                    add_log(f"重派取消({hero_name}): 原点不可占领(被占/失效)")
+                    return
                 api("POST", "/api/v1/resource-marches", token=tok, body={
                     "operationId": op_id(), "action": "OCCUPY",
                     "heroInstanceId": hero_id, "resourceNodeId": node_id,
