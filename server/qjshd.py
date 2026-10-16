@@ -893,12 +893,29 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
 
 
 def check_resource_timers():
-    """每分钟：对满8h进入90s窗口的占领安排精确触发线程"""
+    """每分钟：满8h占领安排收获触发；行军(派遣/回程)到点安排状态刷新触发"""
     try:
-        d = with_session(lambda tok: api("GET", "/api/v1/resource-occupations", token=tok))
         mi = with_session(lambda tok: api("GET", "/api/v1/military-intelligence", token=tok))
+        d = with_session(lambda tok: api("GET", "/api/v1/resource-occupations", token=tok))
     except Exception:
         return
+    # 行军到点（派遣到达/回城到家）：仅刷新快照让面板状态即时切换
+    for e in (mi.get("entries") or []):
+        if e.get("targetKind") != "RESOURCE" or e.get("state") == "GARRISONED":
+            continue
+        tkey = "march-" + str(e.get("entryId"))
+        th = _res_timers.get(tkey)
+        if th and th.is_alive():
+            continue
+        wait = _parse_ts(e.get("arrivesAt")) + 2 - time.time()
+        if wait > 90 or wait < -3600:
+            continue
+        def ffire(w=wait):
+            time.sleep(max(0, w))
+            refresh_snapshot(force=True)
+        th = threading.Thread(target=ffire, daemon=True)
+        _res_timers[tkey] = th
+        th.start()
     hero_by_node = {}
     for e in (mi.get("entries") or []):
         if e.get("resourceNodeId") and e.get("heroInstanceId"):
