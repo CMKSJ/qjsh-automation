@@ -56,7 +56,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
   <button class="ghost" onclick="copyBM()" style="margin-top:8px">复制书签代码</button>
 </div>
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
-<div class="card"><h2>今日任务<button class="ghost" style="margin-left:auto;padding:2px 8px;font-size:14px;line-height:1.2" onclick="job('refresh')" title="刷新信息">🔄</button></h2><div class="grid" id="daily"></div>
+<div class="card"><h2>今日任务<button class="ghost" style="margin-left:auto;padding:2px 8px;font-size:14px;line-height:1.2" onclick="job('refresh')" title="刷新信息">🔄</button><button id="soulbtn" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleSoul()">⚒</button></h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
   </div><div id="trainingbox" style="margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:8px 12px"></div></div>
 <div class="card"><h2>酒馆监控 <span class="tag" id="arstate"></span> <span class="tag" id="herocap" style="margin-left:auto"></span><button id="autores" class="soft" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleAutoRes()">🎯</button><button class="soft" style="padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
@@ -106,6 +106,10 @@ async function render(){
     try{const seen=JSON.parse(localStorage.getItem('nids')||'[]');(s.notices||[]).forEach(function(n){if(seen.indexOf(n.id)<0){toast(n.msg,false);seen.push(n.id)}});localStorage.setItem('nids',JSON.stringify(seen.slice(-30)))}catch(e){}
     window.__paused=!!s.paused;
     $('pauser').textContent=window.__paused?'▶':'⏸';
+    window.__soul=s.soulFactory===true;
+    $('soulbtn').style.color=window.__soul?'var(--ok)':'var(--dim)';
+    $('soulbtn').style.borderColor=window.__soul?'rgba(63,185,111,.45)':'';
+    $('soulbtn').title=window.__soul?'将魂工厂运行中，点击���闭':'将魂工厂已关，点击开启';
     $('runstate').textContent=window.__paused?'已暂停':'运行中';
     $('runstate').style.color=window.__paused?'var(--err)':'var(--ok)';
     $('pauser').title=window.__paused?'已暂停，点击恢复运行':'运行中，点击暂停';
@@ -132,6 +136,9 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
     dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap,true)+'</b></div>';
     dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
+    const souls=s.souls||{};
+    const soulTxt=Object.keys(souls).length?Object.entries(souls).map(function(e2){return ({GREEN:'绿',BLUE:'蓝',PURPLE:'紫',ORANGE:'橙'}[e2[0]]||e2[0])+e2[1]}).join('·'):'0';
+    dh+='<div class="kv"><span>提魂</span><b>'+soulTxt+'</b></div>';
     $('daily').innerHTML=dh;
     const tr=(s.snapshot&&s.snapshot.training)||[];
     const rm=[];
@@ -194,6 +201,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
   }catch(e){if(e!==0)console.error(e)}
 }
 function capFull(){const c=window.__cap;return !!(c&&c.capacity>0&&c.owned>=c.capacity)}
+async function toggleSoul(){await req('soul-factory',{method:'POST',body:JSON.stringify({enabled:!window.__soul})});setTimeout(render,1000)}
 async function toggleAutoRes(){await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
 async function res(k){const r=await req('reserve',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.warn)toast(r.warn,false);render()}

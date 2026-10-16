@@ -395,6 +395,84 @@ def _parse_ts(iso):
         return 0.0
 
 
+SOUL_COLORS = ["GREEN", "BLUE"]  # 直提魂品质（自家候选）
+
+
+def _soul_daily():
+    d = load("daily", {})
+    if d.get("date") != datetime.now(TZ).strftime("%Y-%m-%d"):
+        d = {"date": datetime.now(TZ).strftime("%Y-%m-%d"), "souls": {}}
+    return d
+
+
+def _add_souls(color, n):
+    d = _soul_daily()
+    souls = d.setdefault("souls", {})
+    souls[color] = souls.get(color, 0) + n
+    save("daily", d)
+
+
+def job_soul_factory(token):
+    """自家酒馆：绿/蓝候选直接提魂（无需空位）；紫+暂不自动招。返回动作列表。"""
+    out = []
+    if load("soulFactory", False) is not True:
+        return out
+    t = api("GET", "/api/v1/tavern", token=token)
+    for c in t.get("candidates") or []:
+        if c.get("quality") not in SOUL_COLORS:
+            continue
+        if not c.get("soulExtractionAvailable"):
+            continue
+        try:
+            r = api("POST", "/api/v1/tavern/soul-extractions", token=token, body={
+                "operationId": op_id(), "candidateId": c["candidateId"],
+                "expectedCandidateVersion": c.get("version", 0)})
+            # 产出（soulOutcomes/soulItemName 计量；响应 r 里也可能带）
+            n = 0
+            for it in (c.get("soulOutcomes") or []):
+                try:
+                    n += int(it.get("quantity", 1))
+                except Exception:
+                    n += 1
+            n = n or 1
+            _add_souls(c.get("quality"), n)
+            out.append(f"提魂: {c['name']}({c['quality']}{c['star']}星) +{n}{c.get('soulItemName') or ''}")
+        except Exception as e:
+            out.append(f"提魂失败({c['name']}): {getattr(e, 'code', e)}")
+    return out
+
+
+def check_tavern_refresh():
+    """自家酒馆刷新到点触发将魂工厂（nextFreeRefreshAt 进入 90s 窗口）"""
+    if load("soulFactory", False) is not True:
+        return
+    try:
+        t = with_session(lambda tok: api("GET", "/api/v1/tavern", token=tok))
+    except Exception:
+        return
+    key = "tavern-refresh"
+    th = _res_timers.get(key)
+    if th and th.is_alive():
+        return
+    wait = _parse_ts(t.get("nextFreeRefreshAt")) + 3 - time.time()
+    if wait > 90 or wait < -60:
+        return
+
+    def fire(w=wait):
+        time.sleep(max(0, w))
+        try:
+            tok = read_token()
+            r = job_soul_factory(tok)
+            if r:
+                add_log("酒馆刷新触发: " + "; ".join(r), "success")
+                threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+        except Exception as e:
+            add_log("酒馆刷新触发失败: " + str(getattr(e, "code", e)), "error")
+    th = threading.Thread(target=fire, daemon=True)
+    _res_timers[key] = th
+    th.start()
+
+
 QUALITY_RANK = {"ORANGE": 5, "PURPLE": 4, "BLUE": 3, "GREEN": 2, "WHITE": 1}
 
 
@@ -577,6 +655,10 @@ def job_hourly(active=False):
                 out.append("收租: 未驻守或无可收")
 
             out.extend(job_territory_income(token))
+            try:
+                out.extend(job_soul_factory(token))
+            except Exception as e:
+                out.append(f"提魂异常: {getattr(e, 'code', e)}")
             # 资源点收获与训练已由独立到点计时器处理（check_resource_timers/check_training_timers），
             # 进程重启后下一分钟 tick 也会补收，不再放整点任务（避免与触发线程并发冲突）
 
@@ -1128,6 +1210,7 @@ def tick():
 
     check_training_timers()
     check_resource_timers()
+    check_tavern_refresh()
     if load("paused", False) is True:
         if minute % 5 == 2:
             for f in job_purple_scan():
@@ -1241,6 +1324,8 @@ class Handler(BaseHTTPRequestHandler):
                     "paused": load("paused", False) is True,
                     "autoReserve": load("autoReserve", True) is not False,
                     "notices": _live_notices(),
+                    "soulFactory": load("soulFactory", False) is True,
+                    "souls": (_soul_daily().get("souls") or {}),
                 }
             t = data["token"]
             t["hasToken"] = bool(read_token())
@@ -1293,6 +1378,15 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     add_log("accessToken 已上报 ✓（验证请求延迟，不影响使用）（书签）", "success")
                     st, hd, bd = jresp({"ok": True})
+            self._send(st, hd, bd)
+            return
+        if route == "/api/soul-factory":
+            val = bool(body.get("enabled"))
+            save("soulFactory", val)
+            add_log("将魂工厂已" + ("开启" if val else "关闭"), "success" if val else "warn")
+            if val:
+                threading.Thread(target=lambda: [add_log("提魂(手动): " + "; ".join(r) if r else "提魂(手动): 无可提候选", "success") for r in [job_soul_factory(read_token())]], daemon=True).start()
+            st, hd, bd = jresp({"ok": True, "soulFactory": val})
             self._send(st, hd, bd)
             return
         if route == "/api/auto-reserve":
