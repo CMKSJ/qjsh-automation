@@ -31,8 +31,8 @@ LOG_MAX = 300
 NO_TOKEN_WARN_MS = 3600_000
 ACTIVITY_TIMEOUT_S = 10 * 60
 SELF_ACTION_GRACE_S = 2 * 60
-GONE_TTL_S = 30 * 60
-GRABBED_TTL_S = 2 * 3600
+GONE_TTL_S = 5 * 60
+GRABBED_TTL_S = 30 * 60
 FP_NAMES = ["progress", "copper", "yuanbao", "ticket"]
 SNAP_WRITE_THROTTLE_S = 5 * 60
 
@@ -624,6 +624,17 @@ def job_purple_scan():
                             continue
                         t = api("GET", f"/api/v1/friend-cities/{pid}/tavern", token=token)
                         cand = next((c for c in t.get("candidates", []) if c["name"] == a["hero"] and c["quality"] in PURPLE_PLUS), None)
+                        if not cand and key not in heroes:
+                            # 公告出现但已被抢：仍入列表（售罄态，字段取自公告文案）
+                            heroes[key] = {
+                                "key": key, "playerId": pid, "owner": a["owner"],
+                                "ownerLevel": pcache[a["owner"]].get("level"), "shortId": pcache[a["owner"]].get("shortId"),
+                                "hero": a["hero"], "quality": ("ORANGE" if a.get("qualityName") == "橙" else "PURPLE"),
+                                "star": a.get("star", 0), "troopType": None,
+                                "copperCost": None, "silverTicketCost": None,
+                                "foundAt": a["at"], "protectionEndsAt": None,
+                                "lastSeenAt": datetime.now(TZ).isoformat(),
+                                "status": "GONE", "goneAt": datetime.now(TZ).isoformat()}
                         if cand:
                             is_new = key not in heroes or heroes[key].get("status") != "ALIVE"
                             heroes[key] = {**heroes.get(key, {}), "key": key, "playerId": pid, "owner": a["owner"],
