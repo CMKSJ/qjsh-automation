@@ -132,12 +132,12 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
     $('daily').innerHTML=dh;
     const tr=(s.snapshot&&s.snapshot.training)||[];
-    const rm=(s.snapshot&&s.snapshot.resources&&s.snapshot.resources.marches)||[];
+    const rm=[];
     $('trainingbox').innerHTML=tr.map(function(t){
       return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+t.hero+' <span style="color:'+LVC(t.level||0)+'">Lv'+(t.level||'?')+'</span></span><b><span class="cd" data-until="'+t.endsAt+'">'+cd(t.endsAt)+'</span></b></div>'}).join('')
       +(tr.length&&((s.snapshot&&s.snapshot.resources&&(s.snapshot.resources.marches||[]).length)||(res&&res.garrisons&&res.garrisons.length))?'<div style="border-top:1px solid var(--line);margin:6px 0"></div>':'')
       +rm.map(function(m){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+m.hero+' <span style="color:'+'var(--acc)'+'">'+m.phase+'</span></span><b><span class="cd" data-until="'+m.endsAt+'">'+cd(m.endsAt)+'</span></b></div>'}).join('')
-      +(res&&res.garrisons?res.garrisons.map(function(g){return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+g.hero+' '+(RN[g.type]||g.type)+'Lv'+g.level+' <span style="color:var(--ok)">占领中</span></span><b><span class="cd" data-until="'+g.endsAt+'">'+cd(g.endsAt)+'</span></b></div>'}).join(''):'')
+      +(res&&res.garrisons?res.garrisons.map(function(g){var tp=g.type?' '+(RN[g.type]||g.type)+'Lv'+g.level:'';var ph=g.phase||'占领中';var pc=ph==='占领中'?'var(--ok)':'var(--acc)';return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+g.hero+tp+' <span style="color:'+pc+'">'+ph+'</span></span><b><span class="cd" data-until="'+g.endsAt+'">'+cd(g.endsAt)+'</span></b></div>'}).join(''):'')
       +((tr.length||rm.length||(res&&res.garrisons&&res.garrisons.length))?'':'<div class="muted">无训练/行军/占领</div>');
     for(const h of Object.values(s.heroes||{})){
       if(h.reserved&&h.status==='ALIVE'){

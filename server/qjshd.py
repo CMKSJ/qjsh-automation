@@ -214,8 +214,6 @@ def _snap_fetch_all(token):
     fut = {
         "tavern": ex.submit(lambda: api("GET", "/api/v1/tavern", token=token)),
         "tcities": ex.submit(lambda: api("GET", "/api/v1/territory/cities", token=token)),
-        "rocc": ex.submit(lambda: api("GET", "/api/v1/resource-occupations", token=token)),
-        "march": ex.submit(lambda: api("GET", "/api/v1/resource-marches", token=token)),
         "mi": ex.submit(lambda: api("GET", "/api/v1/military-intelligence", token=token)),
         "heroes": ex.submit(lambda: api("GET", "/api/v1/heroes?limit=50", token=token)),
         "train": ex.submit(lambda: api("GET", "/api/v1/hero-training", token=token)),
@@ -245,31 +243,22 @@ def write_snapshot(token, home, force=False):
         territory = {"cities": len([c for c in (t.get("cities") or []) if c.get("controlledBySubject")]), "slots": t.get("territorySlots", 0)}
 
     resources = None
-    r = D.get("rocc")
-    if r:
-        occs = r.get("occupations") or []
-        slots = territory["slots"] if territory else 2
-        nxt = min((_parse_ts(o.get("occupiedAt")) + 8 * 3600 - time.time() for o in occs), default=None)
-        _hl = (D.get("heroes") or {}).get("heroes") or []
-        _own_ids = {h["heroInstanceId"] for h in _hl}
-        mm = [m for m in ((D.get("march") or {}).get("marches") or []) if m.get("heroInstanceId") in _own_ids]
-        outbound = [m for m in mm if m.get("state") == "OUTBOUND"]
-        returning = [m for m in mm if str(m.get("state", "")).startswith("RETURNING")]
-        resources = {"occupied": len(occs) + len(outbound), "slots": slots,
-                     "nextHarvestIn": (round(nxt) if nxt is not None else None),
-                     "marches": [{"hero": m.get("heroName"), "level": m.get("heroLevel"),
-                                  "phase": ("派遣中" if m.get("state") == "OUTBOUND" else "回城中"),
-                                  "endsAt": m.get("arrivesAt")} for m in (outbound + returning)]}
-        mi = D.get("mi") or {}
-        by_node = {e.get("resourceNodeId"): e for e in (mi.get("entries") or [])}
-        hl = (D.get("heroes") or {}).get("heroes") or []
-        lvmap = {h["heroInstanceId"]: h.get("level") for h in hl}
-        resources["garrisons"] = [
-            {"hero": by_node.get(o.get("resourceNodeId"), {}).get("heroName"),
-             "heroLevel": lvmap.get(by_node.get(o.get("resourceNodeId"), {}).get("heroInstanceId")),
-             "type": o.get("type"), "level": o.get("level"),
-             "endsAt": (datetime.fromtimestamp(_parse_ts(o.get("occupiedAt")) + 8 * 3600, timezone.utc).isoformat())}
-            for o in occs]
+    mi = D.get("mi") or {}
+    res_entries = [e for e in (mi.get("entries") or []) if e.get("targetKind") == "RESOURCE"]
+    garrisoned = [e for e in res_entries if e.get("state") == "GARRISONED"]
+    marching = [e for e in res_entries if e.get("state") != "GARRISONED"]
+    outbound = [e for e in marching if e.get("action") == "OCCUPY"]
+    returning = [e for e in marching if e.get("action") != "OCCUPY"]
+    slots = territory["slots"] if territory else 2
+    nxt = min((_parse_ts(e.get("occurredAt")) + 8 * 3600 - time.time() for e in garrisoned), default=None)
+    resources = {"occupied": len(garrisoned) + len(outbound), "slots": slots,
+                 "nextHarvestIn": (round(nxt) if nxt is not None else None),
+                 "garrisons": [
+                     {"hero": e.get("heroName"), "type": e.get("targetResourceType") if e.get("state") == "GARRISONED" else None,
+                      "level": e.get("targetResourceLevel"),
+                      "phase": ("占领中" if e.get("state") == "GARRISONED" else ("派遣中" if e.get("action") == "OCCUPY" else "回城中")),
+                      "endsAt": (datetime.fromtimestamp(_parse_ts(e.get("occurredAt")) + 8 * 3600, timezone.utc).isoformat() if e.get("state") == "GARRISONED" else e.get("arrivesAt"))}
+                     for e in (garrisoned + outbound + returning)]}
 
     snap = {
         "at": datetime.now(timezone.utc).isoformat(),
