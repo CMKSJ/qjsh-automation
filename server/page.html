@@ -106,7 +106,7 @@ async function render(){
     $('hserver').textContent=(s.state?.serverId||'');
     try{const seen=JSON.parse(localStorage.getItem('nids')||'[]');(s.notices||[]).forEach(function(n){if(seen.indexOf(n.id)<0){toast(n.msg,false);seen.push(n.id)}});localStorage.setItem('nids',JSON.stringify(seen.slice(-30)))}catch(e){}
     window.__paused=!!s.paused;
-    $('pauser').textContent=window.__paused?'▶︎':'⏸︎';
+    $('pauser').textContent=window.__paused?'►':'⏸';
     window.__soul=s.soulFactory===true;
     $('soulbtn').style.color=window.__soul?'var(--ok)':'var(--err)';
     $('soulbtn').style.borderColor=window.__soul?'rgba(63,185,111,.45)':'rgba(229,100,108,.45)';
