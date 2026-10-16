@@ -732,7 +732,7 @@ def grab_hero(key, manual=False):
                     _pe_bj = datetime.fromisoformat((pe or "").replace("Z", "+00:00")).astimezone(TZ).strftime("%H:%M:%S")
                     add_log(f"{h['hero']} " + (f"卡池已刷新，保护期更新至 {_pe_bj}，自动重新蹲点" if changed
                                               else f"保护期尚未结束（{_pe_bj} 开闸），继续按计划蹲点"), "warn")
-                    return {"ok": False, "msg": "保护期已更新，重新排队" if changed else "保护期未到，继续���点"}
+                    return {"ok": False, "msg": "保护期已更新，重新排队" if changed else "保护期未到，继续蹲点"}
             except Exception:
                 pass
         add_log(f"抢购失败({h['hero']}): {e.code}", "error")
