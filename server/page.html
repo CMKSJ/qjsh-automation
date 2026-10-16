@@ -38,7 +38,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #tokbanner ol{margin:6px 0 0 18px;font-size:12.5px}
 </style></head><body>
 <div id="toast"></div>
-<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span><button id="pauser" class="ghost" style="padding:2px 8px;margin-left:auto;font-size:14px;line-height:1.2" onclick="togglePause()">⏸</button><button id="refbtn" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="job('refresh')" title="刷新信息">🔄</button><button id="sndbtn" class="ghost" style="padding:2px 8px;font-size:15px" onclick="toggleSnd()">🔔</button></h1>
+<h1><span class="dot" id="hdot"></span>Q将水浒 · 自动化面板 <span class="tag" id="hserver"></span><button id="pauser" class="ghost" style="padding:2px 8px;margin-left:auto;font-size:14px;line-height:1.2" onclick="togglePause()">⏸</button><button id="sndbtn" class="ghost" style="padding:2px 8px;font-size:15px" onclick="toggleSnd()">🔔</button></h1>
 <div class="card" id="tokbanner" hidden>
   <h2>尚未上报 accessToken</h2>
   <ol>
@@ -50,10 +50,10 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
   <button class="ghost" onclick="copyBM()" style="margin-top:8px">复制书签代码</button>
 </div>
 <div class="card"><h2>账号</h2><div id="player" class="muted">加载中…</div><div class="cur" id="cur" style="margin-top:8px"></div></div>
-<div class="card"><h2>今日任务</h2><div class="grid" id="daily"></div>
+<div class="card"><h2>今日任务<button class="ghost" style="margin-left:auto;padding:2px 8px;font-size:14px;line-height:1.2" onclick="job('refresh')" title="刷新信息">🔄</button></h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
   </div><div class="grid" id="trainingbox"></div></div>
-<div class="card"><h2>酒馆监控 <span class="tag" id="arstate"></span> <span class="tag" id="herocap"></span><button id="autores" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleAutoRes()">🎯</button><button class="soft" style="margin-left:auto;padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
+<div class="card"><h2>酒馆监控 <span class="tag" id="arstate"></span> <span class="tag" id="herocap" style="margin-left:auto"></span><button id="autores" class="ghost" style="padding:2px 8px;font-size:14px;line-height:1.2" onclick="toggleAutoRes()">🎯</button><button class="soft" style="padding:3px 10px" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
