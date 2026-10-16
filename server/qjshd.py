@@ -812,22 +812,7 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
     except Exception as e:
         add_log("资源点收获失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
         return
-    time.sleep(305)  # 返程 5 分钟
-    try:
-        tok = read_token()
-        if not tok:
-            return
-        slot = _pick_resource_slot(tok, hero_level)
-        if not slot:
-            add_log("重派跳过(" + str(hero_name) + "): 无不超过 Lv" + str(hero_level) + " 的空资源槽")
-            return
-        api("POST", "/api/v1/resource-marches", token=tok, body={
-            "operationId": op_id(), "action": "OCCUPY",
-            "heroInstanceId": hero_id, "resourceNodeId": slot["resourceNodeId"],
-            "expectedVersion": str(slot.get("version", "0")), "forcePaymentMethod": None})
-        add_log("重派: " + str(hero_name) + "(Lv" + str(hero_level) + ") -> " + str(slot.get("type")) + "资源Lv" + str(slot.get("level")) + "(守卫Lv" + str(slot.get("guardLevel")) + ")", "success")
-    except Exception as e:
-        add_log("重派失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
+    _ = (hero_id, hero_level)  # 自动重派已移除：仅到点收获
 
 
 def check_resource_timers():
