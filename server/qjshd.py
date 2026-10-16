@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Q将水浒自动化 · 服务器版（自 Cloudflare Worker 完整迁���）
+"""Q将水浒自动化 · 服务器版（自 Cloudflare Worker 完整迁移）
 
 形态：单进程常驻（面板 HTTP 线程 + 每分钟调度线程），状态存本地 JSON（原子写）
 部署：/opt/qjsh/qjshd.py + page.html；systemd: qjshd.service；端口 8787
@@ -705,6 +705,7 @@ def grab_hero(key, manual=False):
                 save("purpleHeroes", heroes)
         mark_self_action()
         add_log(f"🎉 抢购成功: {h['owner']}家 {h['hero']}({h['quality']}{h['star']}星)", "success")
+        threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
         return {"ok": True, "msg": f"已抢到 {h['hero']}"}
     except ApiError as e:
         if e.code == "GONE":
