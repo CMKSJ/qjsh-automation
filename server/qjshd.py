@@ -345,9 +345,17 @@ def _parse_ts(iso):
 QUALITY_RANK = {"ORANGE": 5, "PURPLE": 4, "BLUE": 3, "GREEN": 2, "WHITE": 1}
 
 
+TRAIN_LOCK = threading.Lock()  # 整点任务与到点触发线程互斥：领取+重排必须串行，否则并发 start 撞 HERO_TRAINING_STATE_CONFLICT
+
+
 def job_training(token):
     """领取完成训练；空闲槽选稀有度最高可用武将；时长=不溢出(discarded=0)的最长档，
-    全溢出选浪费最小档；铜钱不足再降档。经验在开始时即入账。"""
+    全溢出选浪费最小档；铜钱不足再降档。经验在开始时即入账。（全局锁串行）"""
+    with TRAIN_LOCK:
+        return _job_training_locked(token)
+
+
+def _job_training_locked(token):
     out = []
     d = api("GET", "/api/v1/hero-training", token=token)
     claimed = False
@@ -514,8 +522,8 @@ def job_hourly(active=False):
                 out.append("收租: 未驻守或无可收")
 
             out.extend(job_territory_income(token))
-            out.extend(job_resource_harvest(token))
-            out.extend(job_training(token))
+            # 资源点收获与训练已由独立到点计时器处理（check_resource_timers/check_training_timers），
+            # 进程重启后下一分钟 tick 也会补收，不再放整点任务（避免与触发线程并发冲突）
 
             write_snapshot(token, home, force=True)
         with_session(do)
