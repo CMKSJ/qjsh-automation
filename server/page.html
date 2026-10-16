@@ -111,9 +111,9 @@ async function render(){
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
     const xy=(x,y,fr)=>'<span style="color:'+(x>=y?(fr?'var(--err)':'var(--acc)'):'var(--ok)')+'">'+x+'</span>/<span style="color:var(--acc)">'+y+'</span>';
     let dh='';
-    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a href="javascript:job(\'signin\')" style="color:var(--acc);font-size:11px">立即签到</a>')+'</b></div>';
-    dh+='<div class="kv"><span>矿山'+(d.mining<10?' <a href="javascript:job(\'mine\')" style="color:var(--acc);font-size:11px">开采</a>':'')+'</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10</b></div>';
-    dh+='<div class="kv"><span>整点任务 <a href="javascript:job(\'hourly\')" style="color:var(--acc);font-size:11px">立即执行</a></span><b>'+hrs+' 次</b></div>';
+    dh+='<div class="kv"><span>签到</span><b>'+(d.signin?'✓ 已完成':'<a class="miniact" href="javascript:job(\'signin\')">立即签到</a>')+'</b></div>';
+    dh+='<div class="kv"><span>矿山'+(d.mining<10?' <a class="miniact" href="javascript:job(\'mine\')">开采</a>':'')+'</span><b><span style="color:'+(d.mining>=10?'var(--acc)':'var(--ok)')+'">'+d.mining+'</span>/10</b></div>';
+    dh+='<div class="kv"><span>整点任务 <a class="miniact" href="javascript:job(\'hourly\')">立即执行</a></span><b>'+hrs+' 次</b></div>';
     dh+='<div class="kv"><span>粮草</span><b>'+xy(provNow,provCap,true)+'</b></div>';
     dh+='<div class="kv"><span>领地</span><b>'+(ter?xy(ter.cities,ter.slots):'-')+'</b></div>';
     dh+='<div class="kv"><span>资源点</span><b>'+(res?xy(res.occupied,res.slots):'-')+'</b></div>';
