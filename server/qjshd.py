@@ -648,6 +648,8 @@ def job_purple_scan():
                                 label = f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)"
                                 found.append(label)
                                 if auto_reserve and (cand["quality"] == "ORANGE" or (cand["quality"] == "PURPLE" and (cand["star"] or 0) >= 5)):
+                                    if _cap_full():
+                                        warn_once("capFull", "自动预约跳过: 武将位已满")
                                     heroes[key]["reserved"] = True
                                     heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                     add_log(f"⭐ 高价值目标自动预约: {label}", "success")
@@ -698,6 +700,11 @@ def job_purple_scan():
         if e.code != "NO_TOKEN":
             add_log(f"紫将扫描失败: {e.code}", "error")
     return found
+
+
+def _cap_full():
+    cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
+    return bool(cap) and cap.get("capacity", 0) > 0 and cap.get("owned", 0) >= cap.get("capacity", 0)
 
 
 def grab_hero(key, manual=False):
@@ -1236,6 +1243,13 @@ class Handler(BaseHTTPRequestHandler):
                 heroes = load("purpleHeroes", {})
                 changed = []
                 if val:
+                    if _cap_full():
+                        cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
+                        save("purpleHeroes", heroes)
+                        add_log(f"自动预约已开启，但武将位已满 {cap.get('owned')}/{cap.get('capacity')}，未批量预约（腾位后可再切换开关触发）", "warn")
+                        st, hd, bd = jresp({"ok": True, "autoReserve": val})
+                        self._send(st, hd, bd)
+                        return
                     # 开启：满足条件(橙卡 或 5星紫卡)的在售/保留武将全部预约（已过期的由蹲点循环立即抢）
                     for k, h in heroes.items():
                         if h.get("status") == "ALIVE" and not h.get("reserved"):
@@ -1279,7 +1293,11 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 save("purpleHeroes", heroes)
             add_log(("预约" if heroes[key]["reserved"] else "取消预约") + f": {heroes[key]['owner']}家 {heroes[key]['hero']}")
-            st, hd, bd = jresp({"ok": True, "reserved": heroes[key]["reserved"]})
+            cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
+            warn = None
+            if heroes[key]["reserved"] and cap and cap.get("owned", 0) >= cap.get("capacity", 0) > 0:
+                warn = f"武将位已满 {cap.get('owned')}/{cap.get('capacity')}，到期前请腾位"
+            st, hd, bd = jresp({"ok": True, "reserved": heroes[key]["reserved"], "warn": warn})
             self._send(st, hd, bd)
             return
         if route == "/api/grab":
