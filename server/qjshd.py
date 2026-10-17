@@ -1837,6 +1837,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/reserve":
+            if load("paused", False) is True:
+                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，预约不可用（点⏸恢复后再试）"}, 403)
+                self._send(st, hd, bd)
+                return
             key = body.get("key")
             with LOCK:
                 heroes = load("purpleHeroes", {})
@@ -1858,6 +1862,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/grab":
+            if load("paused", False) is True:
+                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，抢购不可用（点⏸恢复后再试）"}, 403)
+                self._send(st, hd, bd)
+                return
             r = grab_hero(body.get("key"), manual=True)
             if r.get("ok"):
                 _h = (load("purpleHeroes", {}).get(body.get("key")) or {})
