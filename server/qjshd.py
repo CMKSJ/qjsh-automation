@@ -1230,7 +1230,7 @@ def grab_hero(key, manual=False):
                 heroes[key].update(upd)
                 save("purpleHeroes", heroes)
         mark_self_action()
-        add_log(f"🎉 抢购成功: {h['hero']}({h['quality']}{h['star']}星 @{h['owner']})", "success")
+        # 日志由调用方统一记录
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
         return {"ok": True, "msg": f"已抢到 {h['hero']}"}
     except ApiError as e:
@@ -1278,6 +1278,8 @@ def grab_burst(key):
     """覆盖式抢购：提前 1s 开始，每 120ms 一次直到成功/终态；每次结果记日志"""
     heroes = load("purpleHeroes", {})
     h = heroes.get(key) or {}
+    if h.get("status") != "ALIVE":
+        return {"ok": False, "msg": f"状态{h.get('status')}，跳过"}
     label = f"{h.get('hero', '?')}({h.get('quality', '?')}{h.get('star', '?')}星 @{h.get('owner', '?')})"
     r = {"ok": False, "msg": "未知"}
     for i in range(GRAB_MAX_ATTEMPTS):
@@ -1848,6 +1850,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route == "/api/grab":
             r = grab_hero(body.get("key"), manual=True)
+            if r.get("ok"):
+                _h = (load("purpleHeroes", {}).get(body.get("key")) or {})
+                add_log(f"🎉 抢购成功(手动): {_h.get('hero','?')}({_h.get('quality','?')}{_h.get('star','?')}星 @{_h.get('owner','?')})", "success")
+                threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
             st, hd, bd = jresp(r)
             self._send(st, hd, bd)
             return
