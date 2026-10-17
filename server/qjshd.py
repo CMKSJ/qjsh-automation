@@ -413,32 +413,45 @@ def _add_souls(color, n):
 
 
 def job_soul_factory(token):
-    """自家酒馆：绿/蓝候选直接提魂（无需空位）；紫+暂不自动招。返回动作列表。"""
+    """自家酒馆（不限时段）：蓝将直提魂；紫+有空位则招募保留；绿/白留给别人招赚分成。"""
     out = []
     if load("soulFactory", False) is not True:
         return out
     t = api("GET", "/api/v1/tavern", token=token)
     for c in t.get("candidates") or []:
-        if c.get("quality") not in SOUL_COLORS:
-            continue
-        if not c.get("soulExtractionAvailable"):
-            continue
-        try:
-            r = api("POST", "/api/v1/tavern/soul-extractions", token=token, body={
-                "operationId": op_id(), "candidateId": c["candidateId"],
-                "expectedCandidateVersion": c.get("version", 0)})
-            # 产出（soulOutcomes/soulItemName 计量；响应 r 里也可能带）
-            n = 0
-            for it in (c.get("soulOutcomes") or []):
-                try:
-                    n += int(it.get("quantity", 1))
-                except Exception:
-                    n += 1
-            n = n or 1
-            _add_souls(c.get("quality"), n)
-            out.append(f"提魂: {c['name']}({c['quality']}{c['star']}星) +{n}{c.get('soulItemName') or ''}")
-        except Exception as e:
-            out.append(f"提魂失败({c['name']}): {getattr(e, 'code', e)}")
+        q = c.get("quality")
+        if q == "BLUE":
+            if not c.get("soulExtractionAvailable"):
+                continue
+            try:
+                api("POST", "/api/v1/tavern/soul-extractions", token=token, body={
+                    "operationId": op_id(), "candidateId": c["candidateId"],
+                    "expectedCandidateVersion": c.get("version", 0)})
+                n = 0
+                for it in (c.get("soulOutcomes") or []):
+                    try:
+                        n += int(it.get("quantity", 1))
+                    except Exception:
+                        n += 1
+                n = n or 1
+                _add_souls("BLUE", n)
+                out.append(f"提魂: {c['name']}(蓝{c['star']}星) +{n}")
+            except Exception as e:
+                out.append(f"提魂失败({c['name']}): {getattr(e, 'code', e)}")
+        elif q in ("PURPLE", "ORANGE"):
+            cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
+            free = (cap.get("capacity", 0) - cap.get("owned", 0)) if cap else 0
+            if free < 1:
+                continue
+            if not c.get("recruitmentAvailable"):
+                continue
+            try:
+                api("POST", "/api/v1/tavern/recruitments", token=token, body={
+                    "operationId": op_id(), "candidateId": c["candidateId"],
+                    "expectedCandidateVersion": c.get("version", 0)})
+                out.append(f"招募: {c['name']}({q}{c['star']}星)")
+            except Exception as e:
+                out.append(f"招募失败({c['name']}): {getattr(e, 'code', e)}")
     return out
 
 
@@ -470,11 +483,18 @@ def _in_soul_window():
     return SOUL_SCAN_HOUR_START <= h < 24 or 0 <= h < SOUL_SCAN_HOUR_END
 
 
+SOUL_DAILY_GREEN_CAP = 20      # 每日绿魂上限（魂数，非武将数）
+
+
 def job_soul_scan():
-    """一段遍历：从游标起扫 SOUL_SCAN_BATCH 个 shortId，仅1星绿将招+提魂；10:00~02:00 窗口"""
+    """一段遍历：仅1星绿将招+提魂；10:00~02:00 窗口；每日20绿魂上限"""
     if load("soulFactory", False) is not True:
         return None
     if not _in_soul_window():
+        return None
+    souls_today = (_soul_daily().get("souls") or {}).get("GREEN", 0)
+    if souls_today >= SOUL_DAILY_GREEN_CAP:
+        warn_once("soulCap", f"今日绿魂已达上限 {SOUL_DAILY_GREEN_CAP}，遍历暂停（明日恢复）")
         return None
     tok = read_token()
     if not tok:
@@ -541,6 +561,9 @@ def job_soul_scan():
                 pass
             _add_souls("GREEN", n)
             results.append(f"{cand['name']}({cand['star']}星)+{n}魂")
+            if (_soul_daily().get("souls") or {}).get("GREEN", 0) >= SOUL_DAILY_GREEN_CAP:
+                results.append(f"今日绿魂达 {SOUL_DAILY_GREEN_CAP} 上限，停止本段")
+                break
         except Exception as e:
             code = getattr(e, "code", "")
             if code in ("HERO_CAPACITY_FULL", "CAPACITY_FULL"):
