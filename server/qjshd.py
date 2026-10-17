@@ -1009,12 +1009,26 @@ def _live_notices():
 
 
 def _known_purple_orange():
-    """收集系统实际见过的紫/橙将名单，按品质分组"""
+    """收集实际见过的紫/橙将名单：监控记录 + 历史日志中的公告 + 遍历酒馆遇到的候选"""
     result = {"PURPLE": set(), "ORANGE": set()}
+    # 监控记录
     for h in (load("purpleHeroes", {}) or {}).values():
         q = h.get("quality")
         if q in result and h.get("hero"):
             result[q].add(h["hero"])
+    # 历史日志中的出现公告和招募公告
+    import re as _re
+    for l in (load("log", []) or []):
+        msg = l.get("msg", "")
+        for m in _re.finditer(r"(\d)星(紫|橙)将【(.+?)】", msg):
+            q = "PURPLE" if m.group(2) == "紫" else "ORANGE"
+            result[q].add(m.group(3))
+        for m in _re.finditer(r"发现: @(.+?) (.+?)\((PURPLE|ORANGE)(\d)星\)", msg):
+            result[m.group(3)].add(m.group(2))
+    # 招募公告（TAVERN 类型，含招募者和被招募武将名）
+    for m in _re.finditer(r"招募到\d+星(紫|橙)将【(.+?)】", json.dumps(load("log", []), ensure_ascii=False)):
+        q = "PURPLE" if m.group(1) == "紫" else "ORANGE"
+        result[q].add(m.group(2))
     return {"PURPLE": sorted(result["PURPLE"]), "ORANGE": sorted(result["ORANGE"])}
 
 
