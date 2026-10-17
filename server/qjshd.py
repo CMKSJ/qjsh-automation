@@ -1706,7 +1706,20 @@ def scheduler_loop():
 
 # ---------- HTTP ----------
 
-_PAGE = open(PAGE_FILE, encoding="utf-8").read() if os.path.exists(PAGE_FILE) else "<h1>page.html missing</h1>"
+_page_cache = {"mtime": None, "html": "<h1>page.html missing</h1>"}
+
+
+def _load_page():
+    """page.html 变更自动重读（按 mtime），部署后无需重启"""
+    try:
+        mtime = os.path.getmtime(PAGE_FILE)
+        if _page_cache["mtime"] != mtime:
+            with open(PAGE_FILE, encoding="utf-8") as f:
+                _page_cache["html"] = f.read()
+            _page_cache["mtime"] = mtime
+    except Exception:
+        pass
+    return _page_cache["html"]
 
 
 def jresp(obj, status=200, extra=None):
@@ -1742,7 +1755,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if u.path == base + "/":
-            self._send(200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}, _PAGE.encode())
+            self._send(200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}, _load_page().encode())
             return
         if u.path == base + "/api/status":
             with LOCK:
