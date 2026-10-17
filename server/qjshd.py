@@ -1892,6 +1892,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/auto-reserve":
+            val = bool(body.get("enabled"))
             if val:
                 _sc0 = load("reserveScope", {"pairs": []})
                 if not _sc0.get("pairs"):
@@ -1946,6 +1947,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/reserve":
+            key = body.get("key")
             with LOCK:
                 heroes = load("purpleHeroes", {})
             if key not in heroes:
@@ -1966,6 +1968,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/grab":
+            r = grab_hero(body.get("key"), manual=True)
             if r.get("ok"):
                 _h = (load("purpleHeroes", {}).get(body.get("key")) or {})
                 add_log(f"🎉 抢购成功(手动): {_h.get('hero','?')}({_h.get('quality','?')}{_h.get('star','?')}星 @{_h.get('owner','?')})", "success")
