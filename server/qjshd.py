@@ -1020,23 +1020,10 @@ def _note_known_hero(name, quality):
 
 
 def _known_purple_orange():
-    """本地合并：监控记录 + 公告累计名单 + 手动补充。无网络请求"""
-    result = {"PURPLE": set(), "ORANGE": set()}
-    for h in (load("purpleHeroes", {}) or {}).values():
-        q = h.get("quality")
-        if q in result and h.get("hero"):
-            result[q].add(h["hero"])
-    kn = load("knownHeroes", {})
-    for q in ("PURPLE", "ORANGE"):
-        for n in kn.get(q) or []:
-            if isinstance(n, str):
-                result[q].add(n)
-    manual = load("manualHeroes", {}) or {}
-    for q in ("PURPLE", "ORANGE"):
-        for h in manual.get(q) or []:
-            if isinstance(h, str):
-                result[q].add(h)
-    return {"PURPLE": sorted(result["PURPLE"]), "ORANGE": sorted(result["ORANGE"])}
+    """名单唯一来源：knownHeroes.json（_note_known_hero 见到即写入）"""
+    kn = load("knownHeroes", {"PURPLE": [], "ORANGE": []})
+    return {"PURPLE": sorted(n for n in (kn.get("PURPLE") or []) if isinstance(n, str)),
+            "ORANGE": sorted(n for n in (kn.get("ORANGE") or []) if isinstance(n, str))}
 
 
 def _cap_full():
