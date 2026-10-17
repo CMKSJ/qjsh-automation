@@ -1008,6 +1008,16 @@ def _live_notices():
     return [n for n in _notices if time.time() - n["at"] < 60]
 
 
+def _known_purple_orange():
+    """收集系统实际见过的紫/橙将名单，按品质分组"""
+    result = {"PURPLE": set(), "ORANGE": set()}
+    for h in (load("purpleHeroes", {}) or {}).values():
+        q = h.get("quality")
+        if q in result and h.get("hero"):
+            result[q].add(h["hero"])
+    return {"PURPLE": sorted(result["PURPLE"]), "ORANGE": sorted(result["ORANGE"])}
+
+
 def _cap_full():
     cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
     return bool(cap) and cap.get("capacity", 0) > 0 and cap.get("owned", 0) >= cap.get("capacity", 0)
@@ -1128,8 +1138,8 @@ def job_purple_scan():
                             if _cap_full():
                                 warn_once("capFull", "自动预约时武将位已满，照常预约（到期前需腾位）")
                                 notify("武将位已满，自动预约的目标到期前需腾位")
-                            _sc = load("reserveScope", {"stars": [], "heroes": []})
-                            if auto_reserve and ((cand["star"] or 0) in _sc.get("stars", []) or cand["name"] in _sc.get("heroes", [])):
+                            _sc_set = {(p["star"], p["hero"]) for p in load("reserveScope", {"pairs": []}).get("pairs", [])}
+                            if auto_reserve and ((cand["star"] or 0), cand["name"]) in _sc_set:
                                 heroes[key]["reserved"] = True
                                 heroes[key]["reservedAt"] = datetime.now(TZ).isoformat()
                                 add_log(f"⭐ 高价值目标自动预约: {label}", "success")
@@ -1724,6 +1734,8 @@ class Handler(BaseHTTPRequestHandler):
                     "serverTime": datetime.now(timezone.utc).isoformat(),
                     "notices": _live_notices(),
                     "soulFactory": load("soulFactory", False) is True,
+                    "reserveScope": load("reserveScope", {"pairs": []}),
+                    "knownHeroes": _known_purple_orange(),
                     "souls": (_soul_daily().get("souls") or {}),
                 }
             t = data["token"]
@@ -1801,17 +1813,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route == "/api/save-scope":
             scope = body if isinstance(body, dict) else {}
-            clean = {"stars": [s for s in (scope.get("stars") or []) if isinstance(s, int) and 1 <= s <= 5],
-                    "heroes": [h for h in (scope.get("heroes") or []) if isinstance(h, str) and len(h) <= 20][:100]}
-            save("reserveScope", clean)
+            clean_pairs = []
+            for pr in (scope.get("pairs") or []):
+                if (isinstance(pr, dict) and isinstance(pr.get("star"), int) and 1 <= pr.get("star") <= 5
+                        and isinstance(pr.get("hero"), str) and len(pr.get("hero")) <= 20):
+                    clean_pairs.append({"star": pr["star"], "hero": pr["hero"]})
+            save("reserveScope", {"pairs": clean_pairs[:200]})
             st, hd, bd = jresp({"ok": True})
             self._send(st, hd, bd)
             return
         if route == "/api/auto-reserve":
             val = bool(body.get("enabled"))
             if val:
-                _sc0 = load("reserveScope", {"stars": [], "heroes": []})
-                if not _sc0.get("stars") and not _sc0.get("heroes"):
+                _sc0 = load("reserveScope", {"pairs": []})
+                if not _sc0.get("pairs"):
                     notify("自动预约范围为空，请先点击「范围」设置")
                     st, hd, bd = jresp({"ok": False, "autoReserve": False, "error": "SCOPE_EMPTY", "msg": "自动预约范围为空，请先设置范围"})
                     self._send(st, hd, bd)
@@ -1828,10 +1843,10 @@ class Handler(BaseHTTPRequestHandler):
                         _full_note = f"（注意: 武将位已满 {cap.get('owned')}/{cap.get('capacity')}，到期前需腾位）"
                         notify(f"武将位已满 {cap.get('owned')}/{cap.get('capacity')}，已预约目标到期前需腾位")
                     # 开启：范围匹配的在售/保留武将全部预约（已过期的由蹲点循环立即抢）
-                    _sc = load("reserveScope", {"stars": [], "heroes": []})
+                    _sc_set = {(p["star"], p["hero"]) for p in load("reserveScope", {"pairs": []}).get("pairs", [])}
                     for k, h in heroes.items():
                         if h.get("status") == "ALIVE" and not h.get("reserved"):
-                            if (h.get("star") or 0) in _sc.get("stars", []) or h.get("hero") in _sc.get("heroes", []):
+                            if ((h.get("star") or 0), h.get("hero")) in _sc_set:
                                 h["reserved"] = True
                                 h["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                 changed.append(f"@{h['owner']} {h['hero']}({h['quality']}{h['star']}星)")
