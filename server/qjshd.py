@@ -797,11 +797,11 @@ def _job_training_locked(token):
 
 
 def job_territory_income(token):
-    """领地城市驻守铜钱：readyAt 已过/有铜 -> income-collections"""
+    """领地城市收益：驻守铜钱 + 市场税款（挖矿）分别领取"""
     out = []
     try:
         t = api("GET", "/api/v1/territory/cities", token=token)
-        got = 0
+        got = tax = 0
         for c in (t.get("cities") or []):
             if not c.get("controlledBySubject"):
                 continue
@@ -811,14 +811,24 @@ def job_territory_income(token):
                 if not oid:
                     continue
                 inc = api("GET", "/api/v1/city-occupations/" + oid + "/income", token=token)
+                # 驻守铜钱（正确子路径 garrison-income/collections）
                 g = inc.get("garrison") or {}
                 if g.get("availableCopper", 0) > 0 and (g.get("status") == "READY" or _parse_ts(g.get("readyAt")) <= time.time()):
-                    api("POST", "/api/v1/city-occupations/" + oid + "/income-collections", token=token,
-                        body={"operationId": op_id(), "expectedVersion": inc.get("incomeVersion", "0")})
+                    api("POST", "/api/v1/city-occupations/" + oid + "/garrison-income/collections", token=token,
+                        body={"operationId": op_id(), "expectedIncomeVersion": inc.get("incomeVersion", "0")})
                     got += 1
+                # 市场税款（占领城市的挖矿收益）
+                mt = inc.get("marketTax") or {}
+                if mt.get("status") == "READY" and mt.get("availableCopper", 0) > 0:
+                    api("POST", "/api/v1/city-occupations/" + oid + "/market-tax/collections", token=token,
+                        body={"operationId": op_id(), "expectedIncomeVersion": inc.get("incomeVersion", "0")})
+                    tax += 1
             except Exception:
                 pass
-        out.append(("领地铜钱: 收取" + str(got) + "座") if got else "领地铜钱: 未到收取时间")
+        parts = []
+        if got: parts.append("驻守" + str(got) + "座")
+        if tax: parts.append("税款" + str(tax) + "座")
+        out.append("领地: " + " ".join(parts) if parts else "领地: 未到收取时间")
     except Exception as e:
         out.append("领地铜钱失败: " + str(getattr(e, "code", e)))
     return out
