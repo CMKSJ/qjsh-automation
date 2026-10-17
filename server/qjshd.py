@@ -412,36 +412,79 @@ def _add_souls(color, n):
     save("daily", d)
 
 
-def _synthesize_green_souls(token):
-    """绿魂自动合成蓝魂（每10绿→1蓝，释放背包格子）；返回合成蓝魂数"""
+def _free_inv_slots(token, inv=None):
+    if inv is None:
+        try:
+            inv = api("GET", "/api/v1/inventory", token=token)
+        except Exception:
+            return 99, {}
+    iv = inv.get("inventory") or {}
+    return int(iv.get("freeSlots") or 0), inv
+
+
+def _do_synth(token, item_code, syn, inv_version):
+    api("POST", "/api/v1/inventory/syntheses", token=token, body={
+        "operationId": op_id(), "itemCode": item_code,
+        "all": bool(syn.get("canSynthesizeAll")),
+        "expectedRecipeVersion": str(syn.get("recipeVersion", "1")),
+        "expectedInventoryVersion": str(inv_version)})
+
+
+def ensure_inventory_space(token, need=1):
+    """满包时按优先级释放格子：金刚石碎片/玄铁碎片合成(各10合1) > 绿魂10合1蓝。
+    平时不动绿魂（保留是必要的）；返回释放的格子数。"""
     try:
         inv = api("GET", "/api/v1/inventory", token=token)
     except Exception:
         return 0
-    made = 0
-    for e in inv.get("entries", []):
+    iv = inv.get("inventory") or {}
+    free = int(iv.get("freeSlots") or 0)
+    if free >= need:
+        return 0
+    inv_version = str(iv.get("version", "0"))
+    entries = inv.get("entries") or []
+    released = 0
+    # 优先级 1：碎片合成（金刚石/玄铁/绿将卡碎片，每种合成后叠并释放 1 格）
+    frag_priority = ["ITEM_D711432EB8A94729B30F388CCEB56663",   # 玄铁碎片(描述确认)
+                     "ITEM_725C7906C4BE474CA64355533CA6E95C"]    # 金刚石碎片(假设码,按synthesis.canSynthesize过滤)
+    for e in entries:
+        syn = e.get("synthesis") or {}
+        if not (syn.get("canSynthesize") or syn.get("canSynthesizeAll")):
+            continue
+        code = e.get("code") or ""
+        name = e.get("displayName") or ""
+        is_frag = ("碎片" in name) and code != "ITEM_GREEN_HERO_SOUL"
+        if not is_frag:
+            continue
+        try:
+            _do_synth(token, code, syn, inv_version)
+            released += 1
+            add_log(f"背包满: 合成碎片 {name} 释放格子", "success")
+            if free + released >= need:
+                return released
+        except Exception:
+            continue
+    # 优先级 2：绿魂 10 合 1 蓝（仅当碎片不够时）
+    for e in entries:
         if e.get("code") != "ITEM_GREEN_HERO_SOUL":
             continue
         syn = e.get("synthesis") or {}
         if not (syn.get("canSynthesize") or syn.get("canSynthesizeAll")):
             continue
         try:
-            _blue_before = sum(int(e.get("quantity", 0)) for e in inv.get("entries", []) if e.get("code") == "ITEM_BLUE_HERO_SOUL")
-            api("POST", "/api/v1/inventory/syntheses", token=token, body={
-                "operationId": op_id(), "itemCode": "ITEM_GREEN_HERO_SOUL",
-                "all": bool(syn.get("canSynthesizeAll")),
-                "expectedRecipeVersion": str(syn.get("recipeVersion", "1")),
-                "expectedInventoryVersion": str((inv.get("inventory") or {}).get("version", "0"))})
+            _blue_before = sum(int(x.get("quantity", 0)) for x in entries if x.get("code") == "ITEM_BLUE_HERO_SOUL")
+            _do_synth(token, "ITEM_GREEN_HERO_SOUL", syn, inv_version)
             inv2 = api("GET", "/api/v1/inventory", token=token)
-            _blue_after = sum(int(e.get("quantity", 0)) for e in inv2.get("entries", []) if e.get("code") == "ITEM_BLUE_HERO_SOUL")
+            _blue_after = sum(int(x.get("quantity", 0)) for x in inv2.get("entries", []) if x.get("code") == "ITEM_BLUE_HERO_SOUL")
             made = max(0, _blue_after - _blue_before)
             if made:
                 _add_souls("BLUE", made)
-                add_log(f"合成: 绿魂x10的倍数 -> +{made}蓝魂（自动，释放背包格）", "success")
-        except Exception as ex:
-            add_log(f"绿魂合成失败: {getattr(ex, 'code', ex)}", "warn")
+            released += 1
+            add_log(f"背包满: 绿魂合成 +{made}蓝魂 释放格子（不得已）", "warn")
+        except Exception:
+            pass
         break
-    return made
+    return released
 
 
 def job_soul_factory(token):
@@ -449,7 +492,7 @@ def job_soul_factory(token):
     out = []
     if load("soulFactory", False) is not True:
         return out
-    _synthesize_green_souls(token)
+    ensure_inventory_space(token, need=1)
     t = api("GET", "/api/v1/tavern", token=token)
     for c in t.get("candidates") or []:
         q = c.get("quality")
@@ -457,6 +500,7 @@ def job_soul_factory(token):
             if not c.get("soulExtractionAvailable"):
                 continue
             try:
+                ensure_inventory_space(token, need=1)
                 api("POST", "/api/v1/tavern/soul-extractions", token=token, body={
                     "operationId": op_id(), "candidateId": c["candidateId"],
                     "expectedCandidateVersion": c.get("version", 0)})
@@ -545,7 +589,7 @@ def job_soul_scan():
         return "铜钱不足5000，跳过"
     if free < 1 and False:
         pass  # 空位由招→提即时循环，不强制预检（招募满员会被服务器拒）
-    _synthesize_green_souls(tok)
+    ensure_inventory_space(tok, need=1)
     st = load("soulScan", {"cursor": 100000, "max": 101100})
     cursor, mx = st.get("cursor", 100000), st.get("max", 101100)
     pcache = load("sidCache", {})
@@ -578,6 +622,7 @@ def job_soul_scan():
             h = next((x for x in hl if x["heroInstanceId"] == hid), None)
             if not h:
                 continue
+            ensure_inventory_space(tok, need=1)
             sr = api("POST", f"/api/v1/heroes/{hid}/soul-extractions", token=tok, body={
                 "operationId": op_id(), "expectedHeroVersion": str(h.get("version", "0"))})
             grabbed += 1
@@ -1226,6 +1271,7 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
         tok = read_token()
         if not tok:
             return
+        ensure_inventory_space(tok, need=1)
         api("POST", "/api/v1/resource-occupations/" + occ["occupationId"] + "/harvests", token=tok,
             body={"operationId": op_id(), "expectedVersion": str(occ.get("occupationVersion", "0")), "heroInstanceId": None})
         add_log("资源点收获: " + str(hero_name) + " @" + str(occ.get("type", "")) + "Lv" + str(occ.get("level")), "success")
