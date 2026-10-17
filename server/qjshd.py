@@ -1271,7 +1271,7 @@ def grab_hero(key, manual=False):
 
 GRAB_LEAD_MS = 1500       # 提前 2 秒开抢
 GRAB_INTERVAL_MS = 120    # 连发间隔
-GRAB_MAX_ATTEMPTS = 15    # 覆盖 ~2s 提前 + 1s 开闸后 = ~3s 窗口
+GRAB_MAX_ATTEMPTS = 18    # -1.5s ~ +0.5s 覆盖（18 × 120ms = 2.16s）
 
 
 def grab_burst(key):
