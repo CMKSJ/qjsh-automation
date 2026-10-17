@@ -1195,6 +1195,18 @@ def job_purple_scan():
     return found
 
 
+def _remove_from_scope(hero, star):
+    """购得后从关注范围移除该星级的该武将（其余星级保留）"""
+    try:
+        pairs = (load("reserveScope", {"pairs": []}) or {}).get("pairs") or []
+        new = [p for p in pairs if not (p.get("hero") == hero and p.get("star") == star)]
+        if len(new) != len(pairs):
+            save("reserveScope", {"pairs": new})
+            add_log(f"关注武将移除: {star}星{hero}（已购得，其余星级保留）")
+    except Exception as e:
+        add_log(f"关注武将移除失败: {e}", "warn")
+
+
 def grab_hero(key, manual=False):
     with LOCK:
         heroes = load("purpleHeroes", {})
@@ -1270,6 +1282,7 @@ def grab_hero(key, manual=False):
                     upd["paidTicket"] = h.get("_paidTicket") or 0
                 heroes[key].update(upd)
                 save("purpleHeroes", heroes)
+                _remove_from_scope(h["hero"], h.get("star"))
         mark_self_action()
         # 日志由调用方统一记录
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
