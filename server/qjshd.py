@@ -586,23 +586,12 @@ def _player_by_sid(token, sid, pcache):
     return None
 
 
-SOUL_SCAN_HOUR_START = 10   # 北京时间 10:00
-SOUL_SCAN_HOUR_END = 2      # 次日 02:00（跨零点窗口）
-
-
-def _in_soul_window():
-    h = datetime.now(TZ).hour
-    return SOUL_SCAN_HOUR_START <= h < 24 or 0 <= h < SOUL_SCAN_HOUR_END
-
-
 SOUL_DAILY_GREEN_CAP = 20      # 每日绿魂上限（魂数，非武将数）
 
 
 def job_soul_scan():
-    """一段遍历：仅1星绿将招+提魂；10:00~02:00 窗口；每日20绿魂上限"""
+    """一段遍历：仅1星绿将招+提魂；每日20绿魂上限（0点重置）；全天运行，游标续扫"""
     if load("soulFactory", False) is not True:
-        return None
-    if not _in_soul_window():
         return None
     souls_today = (_soul_daily().get("souls") or {}).get("GREEN", 0)
     if souls_today >= SOUL_DAILY_GREEN_CAP:
