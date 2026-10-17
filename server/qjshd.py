@@ -412,11 +412,41 @@ def _add_souls(color, n):
     save("daily", d)
 
 
+def _synthesize_green_souls(token):
+    """绿魂自动合成蓝魂（每10绿→1蓝，释放背包格子）；返回合成蓝魂数"""
+    try:
+        inv = api("GET", "/api/v1/inventory", token=token)
+    except Exception:
+        return 0
+    made = 0
+    for e in inv.get("entries", []):
+        if e.get("code") != "ITEM_GREEN_HERO_SOUL":
+            continue
+        syn = e.get("synthesis") or {}
+        if not (syn.get("canSynthesize") or syn.get("canSynthesizeAll")):
+            continue
+        try:
+            r = api("POST", "/api/v1/inventory/syntheses", token=token, body={
+                "operationId": op_id(), "itemCode": "ITEM_GREEN_HERO_SOUL",
+                "all": bool(syn.get("canSynthesizeAll")),
+                "expectedRecipeVersion": str(syn.get("recipeVersion", "1")),
+                "expectedInventoryVersion": str((inv.get("inventory") or {}).get("version", "0"))})
+            made = int(r.get("count") or 0)
+            if made:
+                _add_souls("BLUE", made)
+                add_log(f"合成: 88绿魂 -> ... -> {made}蓝魂（自动）", "success")
+        except Exception as ex:
+            add_log(f"绿魂合成失败: {getattr(ex, 'code', ex)}", "warn")
+        break
+    return made
+
+
 def job_soul_factory(token):
     """自家酒馆（不限时段）：蓝将直提魂；紫+有空位则招募保留；绿/白留给别人招赚分成。"""
     out = []
     if load("soulFactory", False) is not True:
         return out
+    _synthesize_green_souls(token)
     t = api("GET", "/api/v1/tavern", token=token)
     for c in t.get("candidates") or []:
         q = c.get("quality")
@@ -512,6 +542,7 @@ def job_soul_scan():
         return "铜钱不足5000，跳过"
     if free < 1 and False:
         pass  # 空位由招→提即时循环，不强制预检（招募满员会被服务器拒）
+    _synthesize_green_souls(tok)
     st = load("soulScan", {"cursor": 100000, "max": 101100})
     cursor, mx = st.get("cursor", 100000), st.get("max", 101100)
     pcache = load("sidCache", {})
