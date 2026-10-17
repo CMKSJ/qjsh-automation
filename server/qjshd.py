@@ -696,7 +696,7 @@ def job_soul_scan():
     big = max([int(v["shortId"]) for v in pcache.values() if v] + [mx])
     st = {"cursor": (sid if sid <= mx else 100000), "max": max(mx, big + 20)}
     save("soulScan", st)
-    msg = f"提魂遍历: 检查{visited}家, 绿将{found}, 招+提{grabbed}" + (f"({','.join(results)})" if results else "")
+    msg = f"提魂遍历: 检查@visited, 绿将{found}, 招+提{grabbed}" + (f"({','.join(results)})" if results else "")
     if grabbed:
         add_log(msg, "success")
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
@@ -1112,7 +1112,7 @@ def job_purple_scan():
                             "foundAt": a["at"], "protectionEndsAt": t.get("protectionEndsAt"),
                             "lastSeenAt": datetime.now(TZ).isoformat(), "status": "ALIVE"}
                         if is_new:
-                            label = f"{a['owner']}家 {a['hero']}({cand['quality']}{cand['star']}星)"
+                            label = f"@a['owner'] {a['hero']}({cand['quality']}{cand['star']}星)"
                             found.append(label)
                             if _cap_full():
                                 warn_once("capFull", "自动预约时武将位已满，照常预约（到期前需腾位）")
@@ -1226,7 +1226,7 @@ def grab_hero(key, manual=False):
                 heroes[key].update(upd)
                 save("purpleHeroes", heroes)
         mark_self_action()
-        add_log(f"🎉 抢购成功: {h['owner']}家 {h['hero']}({h['quality']}{h['star']}星)", "success")
+        add_log(f"🎉 抢购成功: @h['owner'] {h['hero']}({h['quality']}{h['star']}星)", "success")
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
         return {"ok": True, "msg": f"已抢到 {h['hero']}"}
     except ApiError as e:
@@ -1282,7 +1282,7 @@ def grab_burst(key):
         if r["ok"]:
             add_log(f"抢购成功: {label}（第{i+1}次尝试）", "success")
             return r
-        add_log(f"抢购第{i+1}次失败: {label} -> {msg}", "warn" if i == 0 else "info")
+        add_log(f"抢购第{i+1}次失败: {label} -> {msg}", "warn")
         if r.get("gone") or "武将位已满" in msg or "武将已不在" in msg:
             return r
         if "保护期" in msg and "更新" in msg:
@@ -1592,7 +1592,7 @@ def tick():
     if load("paused", False) is True:
         if minute % 5 == 2:
             for f in job_purple_scan():
-                add_log(f"发现紫将(暂停中仅记录): {f}", "success")
+                add_log(f"发现: {f}", "success")
         return
 
     try:
@@ -1634,7 +1634,7 @@ def tick():
 
         if minute % 5 == 2:
             for f in job_purple_scan():
-                add_log(f"发现紫将: {f}", "success")
+                add_log(f"发现: {f}", "success")
 
         check_reservations()
     except Exception as e:
@@ -1797,7 +1797,7 @@ class Handler(BaseHTTPRequestHandler):
                             if h.get("quality") == "ORANGE" or (h.get("quality") == "PURPLE" and (h.get("star") or 0) >= 5):
                                 h["reserved"] = True
                                 h["reservedAt"] = datetime.now(timezone.utc).isoformat()
-                                changed.append(f"{h['hero']}({h['quality']}{h['star']}星)")
+                                changed.append(f"@{h['owner']} {h['hero']}({h['quality']}{h['star']}星)")
                     save("purpleHeroes", heroes)
                     _detail = (f"，批量预约 {len(changed)} 个: " + "、".join(changed)) if changed else ""
                     add_log("自动预约已开启" + _detail + _full_note, "success" if not _full_note else "warn")
@@ -1834,7 +1834,7 @@ class Handler(BaseHTTPRequestHandler):
                 heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
             with LOCK:
                 save("purpleHeroes", heroes)
-            add_log(("预约" if heroes[key]["reserved"] else "取消预约") + f": {heroes[key]['owner']}家 {heroes[key]['hero']}")
+            add_log(("预约" if heroes[key]["reserved"] else "取消预约") + f": @heroes[key]['owner'] {heroes[key]['hero']}")
             cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
             warn = None
             if heroes[key]["reserved"] and cap and cap.get("owned", 0) >= cap.get("capacity", 0) > 0:
@@ -1875,7 +1875,7 @@ class Handler(BaseHTTPRequestHandler):
             elif name == "scan":
                 fs = job_purple_scan()
                 for f in fs:
-                    add_log("发现紫将: " + f, "success")
+                    add_log("发现: " + f, "success")
                 resp = {"ok": True, "result": [f"发现 {len(fs)} 个: " + "; ".join(fs) if fs else "无新发现"], "found": fs}
             else:
                 st, hd, bd = jresp({"error": "unknown job"}, 400)
