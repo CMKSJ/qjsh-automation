@@ -1613,6 +1613,37 @@ def check_reservations():
                 th.start()
 
 
+def apply_scope_now(reason):
+    """按当前关注范围立刻对齐：范围内补预约（自动预约开启时），范围外取消预约；
+    补预约后交给 check_reservations——保护期已过的立即抢购"""
+    if load("paused", False) is True:
+        return
+    auto = load("autoReserve", True) is not False
+    scope_set = {(p["star"], p["hero"]) for p in load("reserveScope", {"pairs": []}).get("pairs", [])}
+    with LOCK:
+        heroes = load("purpleHeroes", {})
+        added, removed = [], []
+        for k, h in heroes.items():
+            if h.get("status") != "ALIVE":
+                continue
+            in_scope = ((h.get("star") or 0), h.get("hero")) in scope_set
+            if auto and in_scope and not h.get("reserved"):
+                h["reserved"] = True
+                h["reservedAt"] = datetime.now(timezone.utc).isoformat()
+                added.append(f"@{h['owner']} {h['hero']}({h['star']}星)")
+            elif h.get("reserved") and not (auto and in_scope):
+                h["reserved"] = False
+                removed.append(f"@{h['owner']} {h['hero']}({h['star']}星)")
+        if added or removed:
+            save("purpleHeroes", heroes)
+    if added:
+        add_log(f"范围对齐({reason}): 补预约 {len(added)} 个——" + "、".join(added), "success")
+    if removed:
+        add_log(f"范围对齐({reason}): 取消预约 {len(removed)} 个——" + "、".join(removed), "warn")
+    if added:
+        check_reservations()
+
+
 # ---------- 调度 ----------
 
 def tick():
@@ -1855,6 +1886,7 @@ class Handler(BaseHTTPRequestHandler):
                         and isinstance(pr.get("hero"), str) and len(pr.get("hero")) <= 20):
                     clean_pairs.append({"star": pr["star"], "hero": pr["hero"]})
             save("reserveScope", {"pairs": clean_pairs[:200]})
+            threading.Thread(target=apply_scope_now, args=("范围修改",), daemon=True).start()
             st, hd, bd = jresp({"ok": True})
             self._send(st, hd, bd)
             return
@@ -1914,6 +1946,7 @@ class Handler(BaseHTTPRequestHandler):
                 add_log("自动化已暂停，取消全部预约" + (f"({len(cancelled)} 个)" if cancelled else ""), "warn")
             else:
                 add_log("自动化已恢复", "success")
+                threading.Thread(target=apply_scope_now, args=("恢复自动化",), daemon=True).start()
             if val:
                 threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
             st, hd, bd = jresp({"ok": True, "paused": val})
