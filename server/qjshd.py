@@ -1323,9 +1323,9 @@ def grab_hero(key, manual=False):
         return {"ok": False, "msg": str(e)}
 
 
-GRAB_LEAD_MS = 1500       # 提前 1.5 秒开抢（预约到点触发时引用）
+GRAB_LEAD_MS = 1000       # 提前 1 秒开抢（预约到点触发时引用）
 GRAB_INTERVAL_MS = 120    # 连发间隔
-GRAB_MAX_ATTEMPTS = 18    # -1.5s ~ +0.5s 覆盖（18 × 120ms = 2.16s）
+GRAB_MAX_ATTEMPTS = 18    # -1s ~ +1s 覆盖（首次-1.0s，第18次+1.04s）
 
 
 def grab_burst(key):
