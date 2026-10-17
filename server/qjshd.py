@@ -1834,7 +1834,7 @@ class Handler(BaseHTTPRequestHandler):
                 heroes[key]["reservedAt"] = datetime.now(timezone.utc).isoformat()
             with LOCK:
                 save("purpleHeroes", heroes)
-            add_log(("预约" if heroes[key]["reserved"] else "取消预约") + f": @heroes[key]['owner'] {heroes[key]['hero']}")
+            add_log(("预约" if heroes[key]["reserved"] else "取消预约") + f": @{heroes[key]['owner']} {heroes[key]['hero']}")
             cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
             warn = None
             if heroes[key]["reserved"] and cap and cap.get("owned", 0) >= cap.get("capacity", 0) > 0:
