@@ -55,6 +55,19 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #scopePanel .heroes{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px;max-height:180px;overflow-y:auto}
 #scopePanel .selected{border-top:1px solid var(--line);padding-top:10px;margin-top:6px}
 #scopePanel .selected .tag{display:inline-block;background:#2a3550;color:#8ab4ff;border-radius:4px;padding:2px 8px;font-size:12px;margin:2px;cursor:pointer}
+#scopePanel .row{display:flex;align-items:flex-start;gap:8px;margin-bottom:10px}
+#scopePanel .row>.muted{flex-shrink:0;padding-top:4px}
+#scopePanel .flex{display:flex;gap:6px;flex-wrap:wrap}
+#scopePanel .sbtn{background:transparent;border:1px solid var(--line);color:var(--txt);padding:3px 9px;font-size:12px}
+#scopePanel .sbtn.sel{background:rgba(63,185,111,.16);border-color:#3fb96f;color:#5fd795}
+#scopePanel .fbtn{background:transparent;border:1px solid var(--line);color:var(--dim);padding:3px 10px;font-size:12px}
+#scopePanel .fbtn.onp{background:#3d2b66;border-color:#a875ff;color:#c9a6ff}
+#scopePanel .fbtn.ono{background:#4d3010;border-color:#e6a23c;color:#ffc46b}
+#scopePanel .hbtn{background:transparent;padding:2px 8px;font-size:11px}
+#scopePanel .hbtn.p{border:1px solid #3d2b66;color:#c9a6ff}
+#scopePanel .hbtn.o{border:1px solid #4d3010;color:#ffc46b}
+#scopePanel .hbtn.p.sel{background:#3d2b66;border-color:#a875ff}
+#scopePanel .hbtn.o.sel{background:#4d3010;border-color:#e6a23c}
 #toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#2a3550;border:1px solid var(--acc);color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;z-index:99;display:none;max-width:90%;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 #tokbanner{border-color:var(--warn)}
 #tokbanner .code{background:#0c111c;border:1px dashed var(--line);border-radius:8px;padding:8px;margin-top:8px;font-size:11px;word-break:break-all;font-family:monospace;max-height:90px;overflow:auto}
@@ -214,25 +227,25 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
 function capFull(){const c=window.__cap;return !!(c&&c.capacity>0&&c.owned>=c.capacity)}
 async function resetSouls(){await req('reset-souls',{method:'POST',body:JSON.stringify({})});render()}
 async function toggleSoul(){await req('soul-factory',{method:'POST',body:JSON.stringify({enabled:!window.__soul})});setTimeout(render,1000)}
-var _scopeTab='PURPLE';
+var _fP=true, _fO=true;
 var _selStars=[], _selHeroes=[];
 function openScope(){
   _selStars=[];_selHeroes=[];
   $('scopePanel').style.display='flex';
-  scopeTab('PURPLE');
-}
-function closeScope(){$('scopePanel').style.display='none'}
-function scopeTab(q){
-  _scopeTab=q;
-  _selHeroes=[];
-  $('tabPurple').className=q==='PURPLE'?'soft':'ghost';
-  $('tabOrange').className=q==='ORANGE'?'soft':'ghost';
   renderScope();
 }
+function closeScope(){$('scopePanel').style.display='none'}
 function toggleStar(s){var i=_selStars.indexOf(s);if(i>=0)_selStars.splice(i,1);else{_selStars.push(s);_selStars.sort()}renderScope()}
 function toggleHero(h){var i=_selHeroes.indexOf(h);if(i>=0)_selHeroes.splice(i,1);else _selHeroes.push(h);renderScope()}
+function toggleFilter(q){if(q==='P'){_fP=!_fP;if(!_fP&&!_fO)_fO=true}else{_fO=!_fO;if(!_fP&&!_fO)_fP=true}renderScope()}
 function selAllStars(){_selStars=[1,2,3,4,5];renderScope()}
-function selAllHeroes(){_selHeroes=(window.__knownHeroes[_scopeTab]||[]).map(function(n){return n.name});renderScope()}
+function selAllHeroes(){_selHeroes=_shownHeroes().map(function(n){return n.name});renderScope()}
+function _shownHeroes(){
+  var out=[];
+  if(_fP)out=out.concat(window.__knownHeroes.PURPLE||[]);
+  if(_fO)out=out.concat(window.__knownHeroes.ORANGE||[]);
+  return out;
+}
 function addPairs(){
   var pairs=(window.__scope&&window.__scope.pairs)||[];
   var keySet={};pairs.forEach(function(p){keySet[p.star+'|'+p.hero]=1});
@@ -248,19 +261,29 @@ function addPairs(){
 }
 function rmPair(s,h){
   var pairs=(window.__scope&&window.__scope.pairs)||[];
-  pairs=pairs.filter(function(p){return !(p.star===s&&p.hero===h)});
+  pairs=pairs.filter(function(p){return !(p.star===Number(s)&&p.hero===h)});
   window.__scope={pairs:pairs};
   req('save-scope',{method:'POST',body:JSON.stringify({pairs:pairs})});
   renderScope();
 }
 function renderScope(){
   var st=$('scopeStars');st.innerHTML='';
-  [1,2,3,4,5].forEach(function(s){var b=document.createElement('button');b.textContent=s+'星';b.className=_selStars.indexOf(s)>=0?'soft':'ghost';b.onclick=function(){toggleStar(s)};st.appendChild(b)});
-  var selAllS=document.createElement('button');selAllS.textContent='全选';selAllS.className='ghost';selAllS.onclick=selAllStars;st.appendChild(selAllS);
+  var selAllS=document.createElement('button');selAllS.textContent='全选';selAllS.className='sbtn';selAllS.onclick=selAllStars;st.appendChild(selAllS);
+  [1,2,3,4,5].forEach(function(s){var b=document.createElement('button');b.textContent=s+'星';b.className='sbtn'+(_selStars.indexOf(s)>=0?' sel':'');b.onclick=function(){toggleStar(s)};st.appendChild(b)});
+  var fl=$('scopeFilters');fl.innerHTML='';
+  var selAllH=document.createElement('button');selAllH.textContent='全选';selAllH.className='fbtn';selAllH.onclick=selAllHeroes;fl.appendChild(selAllH);
+  var bp=document.createElement('button');bp.textContent='紫将';bp.className='fbtn'+(_fP?' onp':'');bp.onclick=function(){toggleFilter('P')};fl.appendChild(bp);
+  var bo=document.createElement('button');bo.textContent='橙将';bo.className='fbtn'+(_fO?' ono':'');bo.onclick=function(){toggleFilter('O')};fl.appendChild(bo);
   var hs=$('scopeHeroes');hs.innerHTML='';
-  var names=window.__knownHeroes[_scopeTab]||[];
-  names.forEach(function(n){var b=document.createElement('button');b.textContent=n.star?n.name+'('+n.star+'星)':n.name;b.className=_selHeroes.indexOf(n.name)>=0?'soft':'ghost';b.style.padding='2px 6px';b.style.fontSize='11px';b.onclick=function(){toggleHero(n.name)};hs.appendChild(b)});
-  var selAllH=document.createElement('button');selAllH.textContent='全选';selAllH.className='ghost';selAllH.onclick=selAllHeroes;hs.appendChild(selAllH);
+  _shownHeroes().forEach(function(n){
+    var q=(window.__knownHeroes.PURPLE||[]).some(function(x){return x.name===n.name})?'p':'o';
+    var b=document.createElement('button');
+    b.textContent=n.star?n.name+'('+n.star+'星)':n.name;
+    b.className='hbtn '+q+(_selHeroes.indexOf(n.name)>=0?' sel':'');
+    b.onclick=function(){toggleHero(n.name)};
+    hs.appendChild(b);
+  });
+  if(!_shownHeroes().length)hs.innerHTML='<span class="muted">名单为空，酒馆监控见到紫/橙将后自动加入</span>';
   var pairs=(window.__scope&&window.__scope.pairs)||[];
   var parts=[];
   pairs.forEach(function(p){parts.push('<span class="tag" onclick="rmPair(\''+p.star+'\',\''+p.hero+'\')">'+p.star+'星'+p.hero+'</span>')});
@@ -283,11 +306,10 @@ async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify
 try{var _c=JSON.parse(localStorage.getItem('lastStatus')||'null');if(_c)apply(_c)}catch(e){}
 render();setInterval(render,10000);
 </script>
-<div id="scopePanel"><div class="inner">
+<div id="scopePanel" onclick="if(event.target===this)closeScope()"><div class="inner">
 <h3>关注武将 <span class="muted" id="scopeCount"></span><button class="ghost" style="margin-left:auto;padding:2px 10px" onclick="closeScope()">关闭</button></h3>
-<div class="tabs"><button id="tabPurple" class="soft" onclick="scopeTab('PURPLE')">紫将</button><button id="tabOrange" class="ghost" onclick="scopeTab('ORANGE')">橙将</button></div>
-<div class="stars" id="scopeStars"></div>
-<div class="muted" style="margin-bottom:4px">武将：</div>
+<div class="row"><span class="muted">星级:</span><div class="flex" id="scopeStars"></div></div>
+<div class="row"><span class="muted">武将：</span><div class="flex" id="scopeFilters"></div></div>
 <div class="heroes" id="scopeHeroes"></div>
 <div class="muted" id="scopeHint" style="margin-bottom:8px">请同时选择星级和武将</div>
 <button class="soft" style="width:100%;padding:8px" onclick="addPairs()">加入已选范围</button>
