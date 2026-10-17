@@ -63,8 +63,8 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #scopePanel .fbtn.o{background:transparent;border:1px solid rgba(230,162,60,.45);color:#ffc46b}
 #scopePanel .fbtn.o.on{background:#4d3010;border-color:#e6a23c}
 #scopePanel .heroes{display:block;margin-bottom:14px;max-height:260px;overflow-y:auto}
-#scopePanel .heroes .grp{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-#scopePanel .hbtn{background:transparent;font-size:14px;padding:4px 9px}
+#scopePanel .heroes .grp{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+#scopePanel .hbtn{background:transparent;font-size:14px;padding:5px 12px}
 #scopePanel .hbtn.p{border:1px solid rgba(168,117,255,.45);color:#c9a6ff}
 #scopePanel .hbtn.o{border:1px solid rgba(230,162,60,.45);color:#ffc46b}
 #scopePanel .hbtn.p.sel{background:#3d2b66;border-color:#a875ff}
@@ -270,6 +270,11 @@ function addPairs(){
   _selStars=[];_selHeroes=[];
   renderScope();
 }
+function rmAllPairs(){
+  window.__scope={pairs:[]};
+  req('save-scope',{method:'POST',body:JSON.stringify({pairs:[]})});
+  renderScope();
+}
 function rmPair(s,h){
   var pairs=(window.__scope&&window.__scope.pairs)||[];
   pairs=pairs.filter(function(p){return !(p.star===Number(s)&&p.hero===h)});
@@ -335,6 +340,6 @@ render();setInterval(render,10000);
 <div class="heroes" id="scopeHeroes"></div>
 <div class="muted" id="scopeHint" style="margin-bottom:8px">请同时选择星级和武将（可多选）</div>
 <button class="soft" style="width:100%;padding:8px" onclick="addPairs()">加入已选范围</button>
-<div class="selected"><b>已选武将</b> <span class="muted">（点击删除）</span><div id="scopeSelected" style="margin-top:6px"></div></div>
+<div class="selected"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><b>已选武将</b><span class="muted" style="margin-right:auto">（点击删除）</span><button class="abtn" style="padding:3px 10px;font-size:13px" onclick="rmAllPairs()">全部删除</button></div><div id="scopeSelected"></div></div>
 </div></div>
 </body></html>
