@@ -1226,7 +1226,7 @@ def grab_hero(key, manual=False):
                 heroes[key].update(upd)
                 save("purpleHeroes", heroes)
         mark_self_action()
-        add_log(f"🎉 抢购成功: @h['owner'] {h['hero']}({h['quality']}{h['star']}星)", "success")
+        add_log(f"🎉 抢购成功: {h['hero']}({h['quality']}{h['star']}星 @{h['owner']})", "success")
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
         return {"ok": True, "msg": f"已抢到 {h['hero']}"}
     except ApiError as e:
