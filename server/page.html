@@ -208,7 +208,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
           :expired?'<button class="warn" onclick="grab(\''+k+'\')">抢购</button>'
           :'<button onclick="res(\''+k+'\')">预约</button>';
         const cdtxt=h.status==='ALIVE'?'<span class="cd" data-until="'+h.protectionEndsAt+'">'+cd(h.protectionEndsAt)+'</span>':'—';
-        return '<tr class="'+(h.status==='GONE'?'gone-row':'')+'"><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+(h.shortId?'('+h.shortId+')':'(Lv'+h.ownerLevel+')')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>'+(_gone?'<button id="gonebtn" class="ghost" style="margin-top:8px;padding:4px 12px;font-size:12px" onclick="toggleGone()">'+(_showGone?'隐藏':'显示')+'售罄('+_gone+')</button>':''))
+        return '<tr class="'+(h.status==='GONE'?'gone-row':'')+'"><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+(h.shortId?'('+h.shortId+')':'(Lv'+h.ownerLevel+')')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>'+(_gone?'<div style="text-align:center;margin-top:8px"><button id="gonebtn" class="ghost" style="padding:4px 12px;font-size:12px" onclick="toggleGone()">'+(_showGone?'隐藏':'显示')+'售罄('+_gone+') <span style="display:inline-block;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor;vertical-align:middle;margin-left:4px"></span></button></div>':''))
       :'<p class="muted">暂无监控目标</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
@@ -217,7 +217,8 @@ function capFull(){const c=window.__cap;return !!(c&&c.capacity>0&&c.owned>=c.ca
 async function resetSouls(){await req('reset-souls',{method:'POST',body:JSON.stringify({})});render()}
 async function toggleSoul(){await req('soul-factory',{method:'POST',body:JSON.stringify({enabled:!window.__soul})});setTimeout(render,1000)}
 var _showGone=false;
-function toggleGone(){_showGone=!_showGone;var el=$('heroes');el.className=_showGone?'show-gone':'';var b=$('gonebtn');if(b){b.textContent=(_showGone?'隐藏':'显示')+'售罄'}}
+var _TRI_UP='border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:6px solid currentColor';var _TRI_DOWN='border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor';
+function toggleGone(){_showGone=!_showGone;$('heroes').className=_showGone?'show-gone':'';var b=$('gonebtn');if(b){var tri='<span style="display:inline-block;width:0;height:0;'+(_showGone?_TRI_UP:_TRI_DOWN)+';vertical-align:middle;margin-left:4px"></span>';b.innerHTML=(_showGone?'隐藏':'显示')+'售罄('+_gone+')'+tri}}
 async function toggleAutoRes(){await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
 async function res(k){const r=await req('reserve',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.warn)toast(r.warn,false);render()}
