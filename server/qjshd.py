@@ -1265,20 +1265,25 @@ def grab_hero(key, manual=False):
         return {"ok": False, "msg": str(e)}
 
 
+GRAB_LEAD_MS = 2000       # 提前 2 秒开抢
+GRAB_INTERVAL_MS = 200    # 连发间隔
+GRAB_MAX_ATTEMPTS = 15    # 覆盖 ~2s 提前 + 1s 开闸后 = ~3s 窗口
+
+
 def grab_burst(key):
-    """只在 PROTECTED（估早了 150ms）时短间隔连发；其余失败都是终态立即返回"""
+    """覆盖式抢购：提前 2s 开始，每 200ms 一次直到成功/终态；PROTECTED 期间持续重试"""
     r = {"ok": False, "msg": ""}
-    for _ in range(4):
+    for i in range(GRAB_MAX_ATTEMPTS):
         r = grab_hero(key)
-        if r["ok"] or r.get("gone") or r.get("msg") in ("武将位已满，请先解雇或提取武魂腾出位置",):
+        if r["ok"] or r.get("gone"):
             return r
-        if r.get("msg") == "TAVERN_CANDIDATE_PROTECTED":
-            time.sleep(0.12)
-            continue
-        # PROTECTED 之外的服务器错误码（含保护期更新等）也是终态
-        if r.get("msg", "").startswith(("保护期", "武将已不在")):
+        msg = r.get("msg", "")
+        if "武将位已满" in msg or "武将已不在" in msg:
             return r
-        return r
+        if "保护期" in msg and "更新" in msg:
+            return r  # 保护期重排（卡池刷新），等服务端 timer 重新调度
+        # PROTECTED / 网络错 → 继续重试
+        time.sleep(GRAB_INTERVAL_MS / 1000)
     return r
 
 
