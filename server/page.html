@@ -75,6 +75,8 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 #scopePanel .selected .tag.p{background:#3d2b66;border-color:#a875ff;color:#c9a6ff}
 #scopePanel .selected .tag.o{background:#4d3010;border-color:#e6a23c;color:#ffc46b}
 #scopePanel .selected .tag .ts{color:#5fd795;font-style:normal;margin-right:4px}
+#scopePanel .blink{animation:scopeblink .5s linear 3;color:var(--err)}
+@keyframes scopeblink{0%,100%{opacity:1}50%{opacity:.1}}
 @media (max-width:520px){#scopePanel .inner{width:85%}}
 #scopePanel .muted{font-size:13px}
 #toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#2a3550;border:1px solid var(--acc);color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;z-index:99;display:none;max-width:90%;box-shadow:0 4px 16px rgba(0,0,0,.4)}
@@ -259,6 +261,11 @@ function _shownHeroes(){
   return (window.__knownHeroes.PURPLE||[]).concat(window.__knownHeroes.ORANGE||[]);
 }
 function addPairs(){
+  if(!_selStars.length||!_selHeroes.length){
+    var hint=$('scopeHint');
+    if(hint){hint.classList.remove('blink');void hint.offsetWidth;hint.classList.add('blink')}
+    return;
+  }
   var pairs=(window.__scope&&window.__scope.pairs)||[];
   var keySet={};pairs.forEach(function(p){keySet[p.star+'|'+p.hero]=1});
   _selStars.forEach(function(s){
