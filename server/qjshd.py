@@ -1034,6 +1034,12 @@ def _known_purple_orange():
                     break
     except Exception:
         pass
+    # 手动补充名单（橙将卡上见过但招募公告还没出现的）
+    manual = load("manualHeroes", {}) or {}
+    for q in ("PURPLE", "ORANGE"):
+        for h in manual.get(q) or []:
+            if isinstance(h, str):
+                result[q].add(h)
     return {"PURPLE": sorted(result["PURPLE"]), "ORANGE": sorted(result["ORANGE"])}
 
 
