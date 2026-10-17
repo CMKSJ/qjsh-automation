@@ -1596,17 +1596,18 @@ def tick():
     except Exception:
         pass
 
+    # 暂停 = 拦截一切自动操作（训练/收获/重派/提魂/遍历/签到/整点/抢购），仅保留采样与紫将扫描记录
+    if load("paused", False) is True:
+        if minute % 5 == 2:
+            for f in job_purple_scan():
+                add_log(f"发现(暂停中): {f}", "success")
+        return
     check_training_timers()
     check_resource_timers()
     check_tavern_refresh()
     check_pending_redispatch()
     if minute % 10 == 4:
         threading.Thread(target=job_soul_scan, daemon=True).start()
-    if load("paused", False) is True:
-        if minute % 5 == 2:
-            for f in job_purple_scan():
-                add_log(f"发现: {f}", "success")
-        return
 
     try:
         if hour == 0 and minute == 1 and not daily.get("signin"):
