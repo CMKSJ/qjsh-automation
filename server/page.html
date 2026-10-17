@@ -24,7 +24,7 @@ h1 button,.card h2 button{height:26px;min-width:32px;line-height:1;padding:2px 8
 .log time{color:var(--dim);flex-shrink:0;font-variant-numeric:tabular-nums}
 .lv-success{color:var(--ok)}.lv-error{color:var(--err)}.lv-warn{color:var(--warn)}
 .card{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:13px;min-width:520px}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:400px}
 th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-weight:500;font-size:12px}
 .q{padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}
@@ -190,7 +190,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
       for(const k of liveKeys){if(!knownHeroKeys.has(k)){const nh=hs.find(x=>x.key===k);const label=nh?(nh.hero+'('+nh.quality+nh.star+'星 @'+nh.owner+'家)'):k;toast('发现新目标: '+label);beep()}}
       knownHeroKeys=new Set(liveKeys);
     }
-    $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>成本</th><th>保护期</th><th>状态</th><th>操作</th></tr>'+
+    $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>保护期</th><th>状态</th><th>操作</th></tr>'+
       hs.map(h=>{const k=h.key.replace(/"/g,'&quot;');
         const stOpen=h.status==='ALIVE'&&!h.reserved&&new Date(h.protectionEndsAt)<=new Date();
         const st=h.status==='GRABBED'?'<span class="st-GRABBED">购得</span>':h.status==='GONE'?'<span class="st-GONE">售罄</span>':h.reserved?'<span class="st-ALIVE">已预约</span>':stOpen?'<span class="st-ALIVE">在售</span>':'<span class="st-ALIVE">保留</span>';
@@ -200,7 +200,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
           :expired?'<button class="warn" onclick="grab(\''+k+'\')">抢购</button>'
           :'<button onclick="res(\''+k+'\')">预约</button>';
         const cdtxt=h.status==='ALIVE'?'<span class="cd" data-until="'+h.protectionEndsAt+'">'+cd(h.protectionEndsAt)+'</span>':'—';
-        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+(h.shortId?'('+h.shortId+')':'(Lv'+h.ownerLevel+')')+'</td><td>'+(h.status==='GRABBED'?(h.paidCopper!=null?fmt(h.paidCopper)+'铜'+(h.paidTicket?'+'+h.paidTicket+'票':''):'—'):(h.copperCost!=null?fmt(h.copperCost)+'铜'+(h.silverTicketCost?'+'+h.silverTicketCost+'票':''):'—'))+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
+        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+(h.shortId?'('+h.shortId+')':'(Lv'+h.ownerLevel+')')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
       :'<p class="muted">暂无监控目标</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
