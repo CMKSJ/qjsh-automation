@@ -1433,7 +1433,9 @@ def _reg_redispatch(hero_id, hero_name, node_id, node_type, node_level, delay=31
 
 
 def _claim_and_redispatch(hero_id, hero_name, node_id, node_type, node_level):
-    """认领（从 pending 移除成功才执行，防双路径重复）"""
+    """认领（从 pending 移除成功才执行，防双路径重复）；暂停中不认领（任务积压，恢复后由 tick 重试）"""
+    if load("paused", False) is True:
+        return
     with LOCK:
         pd = load("pendingRedispatch", [])
         mine = [x for x in pd if x.get("heroId") == hero_id and x.get("nodeId") == node_id]
