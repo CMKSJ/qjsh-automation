@@ -1271,19 +1271,27 @@ GRAB_MAX_ATTEMPTS = 15    # 覆盖 ~2s 提前 + 1s 开闸后 = ~3s 窗口
 
 
 def grab_burst(key):
-    """覆盖式抢购：提前 2s 开始，每 200ms 一次直到成功/终态；PROTECTED 期间持续重试"""
-    r = {"ok": False, "msg": ""}
+    """覆盖式抢购：提前 1s 开始，每 120ms 一次直到成功/终态；每次结果记日志"""
+    heroes = load("purpleHeroes", {})
+    h = heroes.get(key) or {}
+    label = f"{h.get('hero', '?')}({h.get('quality', '?')}{h.get('star', '?')}星 @{h.get('owner', '?')})"
+    r = {"ok": False, "msg": "未知"}
+    attempts = []
     for i in range(GRAB_MAX_ATTEMPTS):
         r = grab_hero(key)
-        if r["ok"] or r.get("gone"):
-            return r
         msg = r.get("msg", "")
-        if "武将位已满" in msg or "武将已不在" in msg:
+        if r["ok"]:
+            add_log(f"抢购成功: {label}（第{i+1}次尝试）", "success")
+            return r
+        attempts.append(msg)
+        if r.get("gone") or "武将位已满" in msg or "武将已不在" in msg:
+            add_log(f"抢购失败: {label} 第{i+1}次尝试 -> {msg}（尝试链: {' → '.join(attempts)}）", "warn")
             return r
         if "保护期" in msg and "更新" in msg:
-            return r  # 保护期重排（卡池刷新），等服务端 timer 重新调度
-        # PROTECTED / 网络错 → 继续重试
+            add_log(f"抢购中止: {label} 保护期已更新（卡池刷新），共{i+1}次尝试", "warn")
+            return r
         time.sleep(GRAB_INTERVAL_MS / 1000)
+    add_log(f"抢购失败: {label} {GRAB_MAX_ATTEMPTS}次均未命中（尝试链: {' → '.join(attempts[-5:])}...）", "error")
     return r
 
 
