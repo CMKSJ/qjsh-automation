@@ -492,29 +492,34 @@ def job_soul_factory(token):
     out = []
     if load("soulFactory", False) is not True:
         return out
-    ensure_inventory_space(token, need=1)
     t = api("GET", "/api/v1/tavern", token=token)
     for c in t.get("candidates") or []:
         q = c.get("quality")
         if q == "BLUE":
             if not c.get("soulExtractionAvailable"):
                 continue
-            try:
-                ensure_inventory_space(token, need=1)
-                api("POST", "/api/v1/tavern/soul-extractions", token=token, body={
-                    "operationId": op_id(), "candidateId": c["candidateId"],
-                    "expectedCandidateVersion": c.get("version", 0)})
-                n = 0
-                for it in (c.get("soulOutcomes") or []):
-                    try:
-                        n += int(it.get("quantity", 1))
-                    except Exception:
-                        n += 1
-                n = n or 1
-                _add_souls("BLUE", n)
-                out.append(f"提魂: {c['name']}(蓝{c['star']}星) +{n}")
-            except Exception as e:
-                out.append(f"提魂失败({c['name']}): {getattr(e, 'code', e)}")
+            for _retry in range(2):
+                try:
+                    api("POST", "/api/v1/tavern/soul-extractions", token=token, body={
+                        "operationId": op_id(), "candidateId": c["candidateId"],
+                        "expectedCandidateVersion": c.get("version", 0)})
+                    n = 0
+                    for it in (c.get("soulOutcomes") or []):
+                        try:
+                            n += int(it.get("quantity", 1))
+                        except Exception:
+                            n += 1
+                    n = n or 1
+                    _add_souls("BLUE", n)
+                    out.append(f"提魂: {c['name']}(蓝{c['star']}星) +{n}")
+                    break
+                except Exception as e:
+                    code = getattr(e, "code", "")
+                    if "INVENTORY_FULL" in str(code) and _retry == 0:
+                        ensure_inventory_space(token, need=1)
+                        continue
+                    out.append(f"提魂失败({c['name']}): {code}")
+                    break
         elif q in ("PURPLE", "ORANGE"):
             cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
             free = (cap.get("capacity", 0) - cap.get("owned", 0)) if cap else 0
@@ -589,7 +594,6 @@ def job_soul_scan():
         return "铜钱不足5000，跳过"
     if free < 1 and False:
         pass  # 空位由招→提即时循环，不强制预检（招募满员会被服务器拒）
-    ensure_inventory_space(tok, need=1)
     st = load("soulScan", {"cursor": 100000, "max": 101100})
     cursor, mx = st.get("cursor", 100000), st.get("max", 101100)
     pcache = load("sidCache", {})
@@ -622,9 +626,17 @@ def job_soul_scan():
             h = next((x for x in hl if x["heroInstanceId"] == hid), None)
             if not h:
                 continue
-            ensure_inventory_space(tok, need=1)
-            sr = api("POST", f"/api/v1/heroes/{hid}/soul-extractions", token=tok, body={
-                "operationId": op_id(), "expectedHeroVersion": str(h.get("version", "0"))})
+            sr = None
+            for _retry in range(2):
+                try:
+                    sr = api("POST", f"/api/v1/heroes/{hid}/soul-extractions", token=tok, body={
+                        "operationId": op_id(), "expectedHeroVersion": str(h.get("version", "0"))})
+                    break
+                except Exception as _ie:
+                    if "INVENTORY_FULL" in str(getattr(_ie, "code", "")) and _retry == 0:
+                        ensure_inventory_space(tok, need=1)
+                        continue
+                    raise
             grabbed += 1
             try:
                 copper -= int(r.get("copperCost") or 1700)
@@ -1318,9 +1330,16 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
         tok = read_token()
         if not tok:
             return
-        ensure_inventory_space(tok, need=1)
-        api("POST", "/api/v1/resource-occupations/" + occ["occupationId"] + "/harvests", token=tok,
-            body={"operationId": op_id(), "expectedVersion": str(occ.get("occupationVersion", "0")), "heroInstanceId": None})
+        for _retry in range(2):
+            try:
+                api("POST", "/api/v1/resource-occupations/" + occ["occupationId"] + "/harvests", token=tok,
+                    body={"operationId": op_id(), "expectedVersion": str(occ.get("occupationVersion", "0")), "heroInstanceId": None})
+                break
+            except Exception as _he:
+                if "INVENTORY_FULL" in str(getattr(_he, "code", "")) and _retry == 0:
+                    ensure_inventory_space(tok, need=1)
+                    continue
+                raise
         add_log("资源点收获: " + str(hero_name) + " @" + str(occ.get("type", "")) + "Lv" + str(occ.get("level")), "success")
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
         _reg_redispatch(hero_id, hero_name, occ.get("resourceNodeId"), occ.get("type"), occ.get("level"), delay=310)
