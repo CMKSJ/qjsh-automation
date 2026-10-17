@@ -205,8 +205,8 @@ var _TRI_UP='border-left:5px solid transparent;border-right:5px solid transparen
 function toggleGone(){_showGone=!_showGone;$('heroes').className=_showGone?'show-gone':'';var b=$('gonebtn');if(b){var tri='<span style="display:inline-block;width:0;height:0;'+(_showGone?_TRI_UP:_TRI_DOWN)+';vertical-align:middle;margin-left:4px"></span>';b.innerHTML=(_showGone?'隐藏':'显示')+'售罄('+(window.__gone||0)+')'+tri}}
 async function toggleAutoRes(){await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
-async function res(k){const r=await req('reserve',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.warn)toast(r.warn,false);render()}
-async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
+async function res(k){const r=await req('reserve',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.error==='PAUSED'){toast(r.msg,false);return}if(r&&r.warn)toast(r.warn,false);render()}
+async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.error==='PAUSED'){toast(r.msg,false);return}if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
 async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});if(n==='refresh')setTimeout(render,3000);const res=r.result;let txt=Array.isArray(res)?res.join('\n'):(''+res);if(r.found&&r.found.length)txt+='\n'+r.found.join('\n');toast(txt||'已执行');setTimeout(render,800)}
 render();setInterval(render,10000);
 </script></body></html>
