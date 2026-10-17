@@ -1008,33 +1008,29 @@ def _live_notices():
     return [n for n in _notices if time.time() - n["at"] < 60]
 
 
+def _note_known_hero(name, quality):
+    """酒馆监控见到紫/橙将时记入名单（供范围选择器）"""
+    if quality not in ("PURPLE", "ORANGE") or not name:
+        return
+    with LOCK:
+        kn = load("knownHeroes", {"PURPLE": [], "ORANGE": []})
+        if name not in (kn.get(quality) or []):
+            kn.setdefault(quality, []).append(name)
+            save("knownHeroes", kn)
+
+
 def _known_purple_orange():
-    """收集实际见过的紫/橙将名单：监控记录 + 招募公告全量翻页"""
+    """本地合并：监控记录 + 公告累计名单 + 手动补充。无网络请求"""
     result = {"PURPLE": set(), "ORANGE": set()}
     for h in (load("purpleHeroes", {}) or {}).values():
         q = h.get("quality")
         if q in result and h.get("hero"):
             result[q].add(h["hero"])
-    # 招募公告全量翻页（含历史，每个武将被任何人招募过都会留名）
-    try:
-        tok = read_token()
-        if tok:
-            import re as _re
-            cursor = None
-            for _page in range(30):
-                url = "/api/v1/home-announcements/recruitments" + ("?cursor=" + cursor if cursor else "")
-                ann = api("GET", url, token=tok)
-                es = ann.get("entries") or []
-                for e in es:
-                    for m in _re.finditer(r"(\d+)星(紫|橙)将【(.+?)】", e.get("content", "")):
-                        q = "PURPLE" if m.group(2) == "紫" else "ORANGE"
-                        result[q].add(m.group(3))
-                cursor = ann.get("nextCursor")
-                if not cursor or not es:
-                    break
-    except Exception:
-        pass
-    # 手动补充名单（橙将卡上见过但招募公告还没出现的）
+    kn = load("knownHeroes", {})
+    for q in ("PURPLE", "ORANGE"):
+        for n in kn.get(q) or []:
+            if isinstance(n, str):
+                result[q].add(n)
     manual = load("manualHeroes", {}) or {}
     for q in ("PURPLE", "ORANGE"):
         for h in manual.get(q) or []:
@@ -1058,6 +1054,7 @@ def job_purple_scan():
         for e in ann.get("entries") or []:
             for pp in parse_appearance_all(e.get("content", "")):
                 pp["at"] = e.get("startsAt")
+                _note_known_hero(pp["hero"], "ORANGE" if pp.get("qualityName") == "橙" else "PURPLE")
                 appearances.append(pp)
         with LOCK:
             pcache = load("playerCache", {})

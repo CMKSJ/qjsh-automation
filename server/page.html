@@ -99,8 +99,12 @@ function cd(iso){const _off=window.__srvOffset||0;const s=Math.floor((new Date(i
 setInterval(function(){document.querySelectorAll('.cd[data-until]').forEach(function(e){e.textContent=cd(e.getAttribute('data-until'))})},1000);
 let knownHeroKeys=null;
 async function render(){
+  const s=await req('status');
+  apply(s);
+  try{localStorage.setItem('lastStatus',JSON.stringify(s))}catch(e){}
+}
+function apply(s){
   try{
-    const s=await req('status');
     const hasTok=!!(s.token&&s.token.hasToken);
     $('tokbanner').hidden=hasTok;
     if(!hasTok)$('bmcode').textContent=BM;
@@ -240,6 +244,7 @@ async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.
 async function res(k){const r=await req('reserve',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.error==='PAUSED'){toast(r.msg,false);return}if(r&&r.warn)toast(r.warn,false);render()}
 async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.error==='PAUSED'){toast(r.msg,false);return}if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
 async function job(n){const r=await req('job',{method:'POST',body:JSON.stringify({name:n})});if(n==='refresh')setTimeout(render,3000);const res=r.result;let txt=Array.isArray(res)?res.join('\n'):(''+res);if(r.found&&r.found.length)txt+='\n'+r.found.join('\n');toast(txt||'已执行');setTimeout(render,800)}
+try{var _c=JSON.parse(localStorage.getItem('lastStatus')||'null');if(_c)apply(_c)}catch(e){}
 render();setInterval(render,10000);
 </script>
 <div id="scopePanel"><div class="inner">
