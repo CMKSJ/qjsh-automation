@@ -34,7 +34,7 @@ th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-weight:500;font-size:12px}
 .q{padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}
 .q-PURPLE{background:#3d2b66;color:#c9a6ff}.q-ORANGE{background:#4d3010;color:#ffc46b}
-.st-ALIVE{color:var(--ok)}.st-GONE{color:var(--dim)}.st-GRABBED{color:var(--acc)}
+.st-ALIVE{color:var(--ok);display:inline-block;vertical-align:middle}.st-GONE{color:var(--dim);display:inline-block;vertical-align:middle}.st-GRABBED{color:var(--acc);display:inline-block;vertical-align:middle}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
 button.soft{background:rgba(79,140,255,.13);border:1px solid rgba(79,140,255,.45);color:#8ab4ff}
@@ -66,7 +66,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>今日任务<button class="soft" style="margin-left:auto" onclick="job('refresh')" title="刷新信息">🔄</button></h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
   </div><div id="trainingbox" style="margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:8px 12px"></div></div>
-<div class="card"><h2>酒馆监控 <button id="autores" class="soft" style="padding:3px 10px;font-size:12px;margin-left:8px" onclick="toggleAutoRes()">自动预约</button><span class="tag" id="herocap" style="margin-left:auto"></span><button class="soft" onclick="job('scan')">立即扫描</button></h2>
+<div class="card"><h2>酒馆监控 <button id="autores" class="soft" style="padding:3px 10px;margin-left:8px" onclick="toggleAutoRes()">自动预约</button><span class="tag" id="herocap" style="margin-left:auto"></span><button class="soft" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
