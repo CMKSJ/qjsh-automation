@@ -301,8 +301,8 @@ function renderScope(){
   });
   if(!shown.length)hs.innerHTML='<span class="muted">名单为空，酒馆监控见到紫/橙将后自动加入</span>';
   var pairs=(window.__scope&&window.__scope.pairs)||[];
-  var pp=pairs.filter(function(p){return purpleNames[p.hero]}).sort(function(a,b){return b.star-a.star});
-  var op=pairs.filter(function(p){return !purpleNames[p.hero]}).sort(function(a,b){return b.star-a.star});
+  var pp=pairs.filter(function(p){return purpleNames[p.hero]}).sort(function(a,b){return a.star-b.star});
+  var op=pairs.filter(function(p){return !purpleNames[p.hero]}).sort(function(a,b){return a.star-b.star});
   function tagHtml(p){var q=purpleNames[p.hero]?'p':'o';return '<span class="tag '+q+'" onclick="rmPair(\''+p.star+'\',\''+p.hero+'\')"><i class="ts">'+p.star+'星</i>'+p.hero+'</span>'}
   $('scopeSelected').innerHTML=((pp.length?pp.map(tagHtml).join(''):'')+(pp.length&&op.length?'<br>':'')+(op.length?op.map(tagHtml).join(''):''))||'<span class="muted">空</span>';
   $('scopeCount').textContent='已选 '+pairs.length+' 项';
