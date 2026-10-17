@@ -23,13 +23,14 @@ h1 button,.card h2 button{height:26px;min-width:32px;line-height:1;padding:2px 8
 .log div{padding:4px 0;border-bottom:1px solid #202a40;display:flex;gap:8px}
 .log time{color:var(--dim);flex-shrink:0;font-variant-numeric:tabular-nums}
 .lv-success{color:var(--ok)}.lv-error{color:var(--err)}.lv-warn{color:var(--warn)}
-table{width:100%;border-collapse:collapse;font-size:13px}
+.card{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:520px}
 th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-weight:500;font-size:12px}
 .q{padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}
 .q-PURPLE{background:#3d2b66;color:#c9a6ff}.q-ORANGE{background:#4d3010;color:#ffc46b}
 .st-ALIVE{color:var(--ok)}.st-GONE{color:var(--dim)}.st-GRABBED{color:var(--acc)}
-button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
 button.soft{background:rgba(79,140,255,.13);border:1px solid rgba(79,140,255,.45);color:#8ab4ff}
 a.miniact{text-decoration:none;color:#8ab4ff;background:rgba(79,140,255,.13);border:1px solid rgba(79,140,255,.45);border-radius:6px;padding:1px 6px;font-size:11px;cursor:pointer;margin-left:4px}
