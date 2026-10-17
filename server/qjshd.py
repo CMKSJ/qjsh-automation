@@ -974,9 +974,23 @@ def job_hourly(active=False):
 # ---------- 紫将监控与抢购 ----------
 
 def parse_appearance(text):
+    """解析公告，支持一条公告包含多个武将（如'出现了4星橙将【林冲】、4星紫将【扈三娘】'）
+    返回 owner 固定 + 第一个武将信息（向后兼容单武将调用方）
+    多武将场景用 parse_appearance_all"""
+    results = parse_appearance_all(text)
+    return results[0] if results else None
+
+
+def parse_appearance_all(text):
     import re
-    m = re.search(r"【酒馆消息】(.+?)的酒馆出现了(\d+)星(紫|橙)将【(.+?)】", text or "")
-    return {"owner": m.group(1), "star": int(m.group(2)), "qualityName": m.group(3), "hero": m.group(4)} if m else None
+    results = []
+    m = re.search(r"【酒馆消息】(.+?)的酒馆出现了", text or "")
+    if not m:
+        return results
+    owner = m.group(1)
+    for hm in re.finditer(r"(\d+)星(紫|橙)将【(.+?)】", text or ""):
+        results.append({"owner": owner, "star": int(hm.group(1)), "qualityName": hm.group(2), "hero": hm.group(3)})
+    return results
 
 
 _notices = []
@@ -1007,8 +1021,7 @@ def job_purple_scan():
         ann = api("GET", "/api/v1/home-announcements", token=token)
         appearances = []
         for e in ann.get("entries") or []:
-            pp = parse_appearance(e.get("content", ""))
-            if pp:
+            for pp in parse_appearance_all(e.get("content", "")):
                 pp["at"] = e.get("startsAt")
                 appearances.append(pp)
         with LOCK:
