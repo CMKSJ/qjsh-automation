@@ -1276,8 +1276,9 @@ def _resource_flow(occ, hero_id, hero_name, hero_level):
             body={"operationId": op_id(), "expectedVersion": str(occ.get("occupationVersion", "0")), "heroInstanceId": None})
         add_log("资源点收获: " + str(hero_name) + " @" + str(occ.get("type", "")) + "Lv" + str(occ.get("level")), "success")
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
+        _reg_redispatch(hero_id, hero_name, occ.get("resourceNodeId"), occ.get("type"), occ.get("level"), delay=310)
         time.sleep(310)  # 返程 5 分钟到家，再重派原点
-        _redispatch(hero_id, hero_name, occ.get("resourceNodeId"), occ.get("type"), occ.get("level"))
+        _claim_and_redispatch(hero_id, hero_name, occ.get("resourceNodeId"), occ.get("type"), occ.get("level"))
     except Exception as e:
         add_log("资源点收获失败(" + str(hero_name) + "): " + str(getattr(e, "code", e)), "error")
         return
@@ -1300,6 +1301,39 @@ def _node_hours(token, node_id, default=8):
         return default
 
 
+def _reg_redispatch(hero_id, hero_name, node_id, node_type, node_level, delay=310):
+    """登记待重派任务（落盘），进程重启后由 tick 兜底执行"""
+    with LOCK:
+        pd = load("pendingRedispatch", [])
+        pd = [x for x in pd if x.get("heroId") != hero_id]
+        pd.append({"heroId": hero_id, "heroName": hero_name, "nodeId": node_id,
+                   "type": node_type, "level": node_level,
+                   "dueAt": time.time() + delay})
+        save("pendingRedispatch", pd)
+
+
+def _claim_and_redispatch(hero_id, hero_name, node_id, node_type, node_level):
+    """认领（从 pending 移除成功才执行，防双路径重复）"""
+    with LOCK:
+        pd = load("pendingRedispatch", [])
+        mine = [x for x in pd if x.get("heroId") == hero_id and x.get("nodeId") == node_id]
+        if not mine:
+            return  # 已被其他路径（tick 恢复）认领
+        save("pendingRedispatch", [x for x in pd if x is not mine[0]])
+    _redispatch(hero_id, hero_name, node_id, node_type, node_level)
+
+
+def check_pending_redispatch():
+    """每分钟：到期未执行的待重派任务（重启恢复路径）"""
+    pd = load("pendingRedispatch", [])
+    now = time.time()
+    for x in list(pd):
+        if now < x.get("dueAt", 0):
+            continue
+        threading.Thread(target=_claim_and_redispatch, args=(
+            x.get("heroId"), x.get("heroName"), x.get("nodeId"), x.get("type"), x.get("level")), daemon=True).start()
+
+
 def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
     """回城后重派至原资源点"""
     try:
@@ -1318,6 +1352,9 @@ def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
                     "heroInstanceId": hero_id, "resourceNodeId": node_id,
                     "expectedVersion": str(det.get("version", "0")), "forcePaymentMethod": None})
                 add_log(f"重派: {hero_name} -> {node_type}Lv{node_level}(原点, 第{attempt+1}次尝试)", "success")
+                with LOCK:
+                    save("pendingRedispatch", [x for x in load("pendingRedispatch", []) if x.get("heroId") != hero_id])
+                return
                 threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
                 return
             except Exception as e:
@@ -1431,6 +1468,7 @@ def tick():
     check_training_timers()
     check_resource_timers()
     check_tavern_refresh()
+    check_pending_redispatch()
     if minute % 10 == 4:
         threading.Thread(target=job_soul_scan, daemon=True).start()
     if load("paused", False) is True:
