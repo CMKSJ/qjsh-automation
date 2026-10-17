@@ -729,7 +729,17 @@ def _job_training_locked(token):
     cands = sorted(
         [c for c in (d.get("candidates") or [])
          if c.get("available") and c.get("level", 0) < c.get("maximumLevel", 999)],
-        key=lambda c: (-QUALITY_RANK.get(c.get("quality"), 0), -(c.get("star") or 0)))
+        key=lambda c: (-QUALITY_RANK.get(c.get("quality"), 0), -(c.get("star") or 0), c.get("level", 0)))
+    # 为每个武将计算最优档位（含溢出预览），构建有序队列
+    _cand_plans = []
+    for c in cands:
+        previews = {pv.get("planCode"): int(pv.get("discardedExperience", 0)) for pv in (c.get("experiencePreviews") or [])}
+        order = sorted(plans.values(), key=lambda x: -x.get("durationSeconds", 0))
+        zero = [pl for pl in order if previews.get(pl["planCode"], 0) == 0]
+        pool = zero if zero else sorted(order, key=lambda pl: previews.get(pl["planCode"], 0))
+        best = pool[0] if pool else None
+        _cand_plans.append({"hero": c, "best": best, "bestCode": best["planCode"] if best else None})
+    # 优先选择最优档不是 4h 的武将；全是 4h 时按排序依次选
     if not cands:
         if not out:
             out.append("训练: 无可训武将(全部训练中或满级)")
@@ -740,12 +750,18 @@ def _job_training_locked(token):
         copper = next(c["balance"] for c in cur if c["code"] == "COPPER")
     except Exception:
         pass
+    _used = set()
     for s in d.get("slots") or []:
         if s.get("session") or not s.get("unlocked"):
             continue
-        if not cands:
+        # 优先取非 4h 最优的；全 4h 时按原排序取
+        h_entry = next((x for x in _cand_plans if id(x) not in _used and x["bestCode"] != "BASIC_4H"), None)
+        if h_entry is None:
+            h_entry = next((x for x in _cand_plans if id(x) not in _used), None)
+        if h_entry is None:
             break
-        h = cands.pop(0)
+        _used.add(id(h_entry))
+        h = h_entry["hero"]
         # 服务器 discardedExperience 已按"经验沿等级结转、满级截断浪费"算好：
         # 选零浪费的最长档（22h→8h→4h）；全溢出(近满级)取浪费最小；铜钱不够再降档
         previews = {pv.get("planCode"): int(pv.get("discardedExperience", 0)) for pv in (h.get("experiencePreviews") or [])}
