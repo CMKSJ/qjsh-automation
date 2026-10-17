@@ -1199,7 +1199,7 @@ def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
                 if "OCCUPY" not in (det.get("availableActions") or []):
                     add_log(f"重派取消({hero_name}): 原点不可占领(被占/失效)")
                     return
-                api("POST", "/api/v1/resource-marches", token=tok, body={
+                api("POST", "/api/v1/resource-nodes/" + node_id + "/marches", token=tok, body={
                     "operationId": op_id(), "action": "OCCUPY",
                     "heroInstanceId": hero_id, "resourceNodeId": node_id,
                     "expectedVersion": str(det.get("version", "0")), "forcePaymentMethod": None})
