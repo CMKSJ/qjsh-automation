@@ -1171,7 +1171,7 @@ def grab_hero(key, manual=False):
                     heroes[key]["goneAt"] = datetime.now(timezone.utc).isoformat()
                     save("purpleHeroes", heroes)
             add_log(f"售罄: {h['hero']} 已被别人抢先", "warn")
-            return {"ok": False, "msg": "武将已不在卡池（售罄）"}
+            return {"ok": False, "msg": "武将已不在卡池（售罄）", "gone": True}
         if "PROTECT" in (e.code or "").upper():
             # 拉最新保护期：>5s 重排，<=5s 连发
             try:
@@ -1199,14 +1199,19 @@ def grab_hero(key, manual=False):
 
 
 def grab_burst(key):
+    """只在 PROTECTED（估早了 150ms）时短间隔连发；其余失败都是终态立即返回"""
     r = {"ok": False, "msg": ""}
     for _ in range(4):
         r = grab_hero(key)
-        if r["ok"]:
+        if r["ok"] or r.get("gone") or r.get("msg") in ("武将位已满，请先解雇或提取武魂腾出位置",):
             return r
-        if r.get("msg") != "TAVERN_CANDIDATE_PROTECTED":
+        if r.get("msg") == "TAVERN_CANDIDATE_PROTECTED":
+            time.sleep(0.12)
+            continue
+        # PROTECTED 之外的服务器错误码（含保护期更新等）也是终态
+        if r.get("msg", "").startswith(("保护期", "武将已不在")):
             return r
-        time.sleep(0.12)
+        return r
     return r
 
 
@@ -1437,6 +1442,16 @@ def check_resource_timers():
         th.start()
 
 
+def _grab_once(key):
+    """单目标一次性抢购（含 0.3s 前置等待+burst）；成功或终态后线程表自清"""
+    try:
+        grab_burst(key)
+    except Exception as e:
+        add_log(f"抢购异常({key}): {e}", "error")
+    finally:
+        _grab_threads.pop(key, None)
+
+
 def check_reservations():
     with LOCK:
         heroes = load("purpleHeroes", {})
@@ -1446,10 +1461,11 @@ def check_reservations():
             continue
         dt = _parse_ts(h.get("protectionEndsAt")) - now
         if dt <= 0:
-            if key not in _grab_threads or not _grab_threads[key].is_alive():
-                th = threading.Thread(target=grab_burst, args=(key,), daemon=True)
-                _grab_threads[key] = th
-                th.start()
+            th = _grab_threads.get(key)
+            if th and th.is_alive():
+                continue
+            _grab_threads[key] = threading.Thread(target=_grab_once, args=(key,), daemon=True)
+            _grab_threads[key].start()
         elif dt <= 90:
             if key not in _grab_threads or not _grab_threads[key].is_alive():
                 def waiter(k=key, wait=dt):
