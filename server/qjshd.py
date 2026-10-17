@@ -728,7 +728,8 @@ def _job_training_locked(token):
     plans = {p["planCode"]: p for p in (d.get("plans") or []) if p.get("available")}
     cands = sorted(
         [c for c in (d.get("candidates") or [])
-         if c.get("available") and c.get("level", 0) < c.get("maximumLevel", 999)],
+         if c.get("available") and c.get("level", 0) < c.get("maximumLevel", 999)
+         and c.get("quality") in ("PURPLE", "ORANGE")],
         key=lambda c: (-QUALITY_RANK.get(c.get("quality"), 0), -(c.get("star") or 0), c.get("level", 0)))
     # 为每个武将计算最优档位（含溢出预览），构建有序队列
     _cand_plans = []
