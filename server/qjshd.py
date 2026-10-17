@@ -1265,8 +1265,8 @@ def grab_hero(key, manual=False):
         return {"ok": False, "msg": str(e)}
 
 
-GRAB_LEAD_MS = 2000       # 提前 2 秒开抢
-GRAB_INTERVAL_MS = 200    # 连发间隔
+GRAB_LEAD_MS = 1000       # 提前 2 秒开抢
+GRAB_INTERVAL_MS = 120    # 连发间隔
 GRAB_MAX_ATTEMPTS = 15    # 覆盖 ~2s 提前 + 1s 开闸后 = ~3s 窗口
 
 
