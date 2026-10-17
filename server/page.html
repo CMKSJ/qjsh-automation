@@ -89,7 +89,6 @@ function fmt(n){return (+n).toLocaleString('zh-CN')}
 function fmtBJ(iso){var d=new Date(iso);if(isNaN(d))return '';d=new Date(d.getTime()+8*3600e3);var p=x=>String(x).padStart(2,'0');return p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
 function cd(iso){const _off=window.__srvOffset||0;const s=Math.floor((new Date(iso)-Date.now()-_off)/1000);if(s<=0)return '—';const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h>0?h+'小时'+m+'分':m+'分'+String(s%60).padStart(2,'0')+'秒'}
 setInterval(function(){document.querySelectorAll('.cd[data-until]').forEach(function(e){e.textContent=cd(e.getAttribute('data-until'))})},1000);
-const inflight=new Set();
 let knownHeroKeys=null;
 async function render(){
   try{
@@ -161,24 +160,6 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
       +(res&&res.garrisons?res.garrisons.map(function(g){var tp=g.type?' '+(RN[g.type]||g.type)+'Lv'+g.level:'';var ph=g.phase||'占领中';var pc=ph==='占领中'?'var(--ok)':'var(--acc)';return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span>'+g.hero+tp+' <span style="color:'+pc+'">'+ph+'</span></span><b><span class="cd" data-until="'+g.endsAt+'">'+cd(g.endsAt)+'</span></b></div>'}).join(''):'')
       +((tr.length||rm.length||(res&&res.garrisons&&res.garrisons.length))?'':'<div class="muted">无训练/行军/占领</div>');
     for(const h of Object.values(s.heroes||{})){
-      if(h.reserved&&h.status==='ALIVE'){
-        const dt=new Date(h.protectionEndsAt)-Date.now();
-        if(dt<=0&&!inflight.has(h.key)){inflight.add(h.key);grab(h.key).finally(()=>inflight.delete(h.key));}
-        else if(dt>0&&dt<3600000&&!window.__armed){/* armed 初始化见下 */}
-      }
-    }
-    (window.__armed=window.__armed||{});
-    for(const h of Object.values(s.heroes||{})){
-      if(h.reserved&&h.status==='ALIVE'&&h.protectionEndsAt){
-        const at=h.protectionEndsAt;
-        if(window.__armed[h.key]&&window.__armed[h.key].at!==at){clearTimeout(window.__armed[h.key].t);window.__armed[h.key]=null}
-        if(!window.__armed[h.key]){
-          const dt=new Date(at)-Date.now();
-          if(dt>0&&dt<3600000){
-            window.__armed[h.key]={at:at,t:setTimeout(function(k){return function(){grab(k)}}(h.key),Math.max(0,dt-150))};
-          }
-        }
-      }
     }
     const hs=Object.values(s.heroes||{}).map(h=>{h.__exp=h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date();return h})
 .sort(function(a,b){
