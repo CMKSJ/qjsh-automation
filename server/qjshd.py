@@ -1335,11 +1335,24 @@ def check_pending_redispatch():
 
 
 def _redispatch(hero_id, hero_name, node_id, node_type, node_level):
-    """回城后重派至原资源点"""
+    """回城后重派至原资源点；原点守将高于武将等级时改选可打最高点"""
     try:
         tok = read_token()
         if not tok:
             return
+        try:
+            det0 = api("GET", "/api/v1/resource-nodes/" + node_id, token=tok)
+            g0 = det0.get("garrison") or {}
+            glv0 = g0.get("npcLevel") or 0
+            hl = _hero_level_map(tok).get(hero_id, {})
+            hlv = hl.get("level") or 30
+            if g0.get("kind") != "PLAYER" and glv0 > hlv:
+                slot = _pick_resource_slot(tok, hlv)
+                if slot:
+                    add_log(f"原点守将Lv{glv0} > {hero_name}Lv{hlv}，改派 {slot.get('type')}Lv{slot.get('level')}", "warn")
+                    node_id, node_type, node_level = slot["resourceNodeId"], slot.get("type"), slot.get("level")
+        except Exception:
+            pass
         time.sleep(5)  # 等武将落位到家
         for attempt in range(3):
             try:
