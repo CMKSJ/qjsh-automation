@@ -1640,6 +1640,15 @@ class Handler(BaseHTTPRequestHandler):
                     st, hd, bd = jresp({"ok": True})
             self._send(st, hd, bd)
             return
+        if route == "/api/reset-souls":
+            d = _soul_daily()
+            d["souls"] = {}
+            save("daily", d)
+            add_log("每日将魂上限已重置", "success")
+            notify("将魂计数已清零（上限恢复）")
+            st, hd, bd = jresp({"ok": True})
+            self._send(st, hd, bd)
+            return
         if route == "/api/soul-factory":
             val = bool(body.get("enabled"))
             save("soulFactory", val)
