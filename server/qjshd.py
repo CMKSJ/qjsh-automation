@@ -1035,7 +1035,7 @@ def _known_purple_orange():
             items = [{"name": n, "star": 0} for n in grp if isinstance(n, str)]
         else:
             items = [{"name": n, "star": int(s or 0)} for n, s in (grp or {}).items() if isinstance(n, str)]
-        items.sort(key=lambda x: (-x["star"], x["name"]))
+        items.sort(key=lambda x: x["name"])
         out[q] = items
     return out
 
