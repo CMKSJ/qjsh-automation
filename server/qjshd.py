@@ -1695,6 +1695,7 @@ class Handler(BaseHTTPRequestHandler):
                     "snapshot": load("snapshot", {}),
                     "paused": load("paused", False) is True,
                     "autoReserve": load("autoReserve", True) is not False,
+                    "serverTime": datetime.now(timezone.utc).isoformat(),
                     "notices": _live_notices(),
                     "soulFactory": load("soulFactory", False) is True,
                     "souls": (_soul_daily().get("souls") or {}),
