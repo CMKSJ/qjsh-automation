@@ -701,7 +701,7 @@ def job_soul_scan():
     big = max([int(v["shortId"]) for v in pcache.values() if v] + [mx])
     st = {"cursor": (sid if sid <= mx else 100000), "max": max(mx, big + 20)}
     save("soulScan", st)
-    msg = f"提魂遍历: 检查@visited, 绿将{found}, 招+提{grabbed}" + (f"({','.join(results)})" if results else "")
+    msg = f"提魂遍历: 检查{visited}家, 绿将{found}, 招+提{grabbed}" + (f"({','.join(results)})" if results else "")
     if grabbed:
         add_log(msg, "success")
         threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
