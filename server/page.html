@@ -34,7 +34,9 @@ th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-weight:500;font-size:12px}
 .q{padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}
 .q-PURPLE{background:#3d2b66;color:#c9a6ff}.q-ORANGE{background:#4d3010;color:#ffc46b}
-.st-ALIVE{color:var(--ok);display:inline-block;vertical-align:middle}.st-GONE{color:var(--dim);display:inline-block;vertical-align:middle}.st-GRABBED{color:var(--acc);display:inline-block;vertical-align:middle}
+.st-ALIVE{color:var(--ok);display:inline-block;vertical-align:middle}
+.gone-row{display:none}
+.show-gone .gone-row{display:table-row}.st-GONE{color:var(--dim);display:inline-block;vertical-align:middle}.st-GRABBED{color:var(--acc);display:inline-block;vertical-align:middle}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
 button.soft{background:rgba(79,140,255,.13);border:1px solid rgba(79,140,255,.45);color:#8ab4ff}
@@ -178,10 +180,10 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
         }
       }
     }
-    const GRP={GRABBED:0,GONE:1,ALIVE:2};
+    const GRP={GRABBED:0,GONE:3,ALIVE:2};
     const hs=Object.values(s.heroes||{}).map(h=>{h.__exp=h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date();return h}).sort(function(a,b){
       const ga=a.__exp||a.status!=='ALIVE'?GRP[a.status]||3:3,gb=b.__exp||b.status!=='ALIVE'?GRP[b.status]||3:3;
-      const rank=function(h){return h.status==='ALIVE'?(h.__exp?GRP.ALIVE:3):GRP[h.status]};
+      const rank=function(h){return h.status==='ALIVE'?(h.__exp?2:1):GRP[h.status]};
       const ra=rank(a),rb=rank(b);
       if(ra!==rb)return ra-rb;
       if(ra===3)return new Date(a.protectionEndsAt)-new Date(b.protectionEndsAt);
@@ -195,6 +197,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
       for(const k of liveKeys){if(!knownHeroKeys.has(k)){const nh=hs.find(x=>x.key===k);const label=nh?(nh.hero+'('+nh.quality+nh.star+'星 @'+nh.owner+'家)'):k;toast('发现新目标: '+label);beep()}}
       knownHeroKeys=new Set(liveKeys);
     }
+    var _gone=hs.filter(function(h){return h.status==='GONE'}).length;
     $('heroes').innerHTML=hs.length?('<table><tr><th>武将</th><th>酒馆主人</th><th>保护期</th><th>状态</th><th>操作</th></tr>'+
       hs.map(h=>{const k=h.key.replace(/"/g,'&quot;');
         const stOpen=h.status==='ALIVE'&&!h.reserved&&new Date(h.protectionEndsAt)<=new Date();
@@ -205,7 +208,7 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
           :expired?'<button class="warn" onclick="grab(\''+k+'\')">抢购</button>'
           :'<button onclick="res(\''+k+'\')">预约</button>';
         const cdtxt=h.status==='ALIVE'?'<span class="cd" data-until="'+h.protectionEndsAt+'">'+cd(h.protectionEndsAt)+'</span>':'—';
-        return '<tr><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+(h.shortId?'('+h.shortId+')':'(Lv'+h.ownerLevel+')')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>')
+        return '<tr class="'+(h.status==='GONE'?'gone-row':'')+'"><td><span class="q q-'+h.quality+'">'+(h.quality==='PURPLE'?'紫':'橙')+'</span> '+h.hero+' '+h.star+'星</td><td>'+h.owner+(h.shortId?'('+h.shortId+')':'(Lv'+h.ownerLevel+')')+'</td><td>'+cdtxt+'</td><td>'+st+'</td><td style="white-space:nowrap">'+btn+'</td></tr>'}).join('')+'</table>'+(_gone?'<button id="gonebtn" class="ghost" style="margin-top:8px;padding:4px 12px;font-size:12px" onclick="toggleGone()">'+(_showGone?'隐藏':'显示')+'售罄('+_gone+')</button>':''))
       :'<p class="muted">暂无监控目标</p>';
     $('log').innerHTML=(s.log||[]).slice(0,120).map(l=>'<div><time>'+fmtBJ(l.t)+'</time><span class="lv-'+l.level+'">'+l.msg+'</span></div>').join('');
   }catch(e){if(e!==0)console.error(e)}
@@ -213,6 +216,8 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
 function capFull(){const c=window.__cap;return !!(c&&c.capacity>0&&c.owned>=c.capacity)}
 async function resetSouls(){await req('reset-souls',{method:'POST',body:JSON.stringify({})});render()}
 async function toggleSoul(){await req('soul-factory',{method:'POST',body:JSON.stringify({enabled:!window.__soul})});setTimeout(render,1000)}
+var _showGone=false;
+function toggleGone(){_showGone=!_showGone;var el=$('heroes');el.className=_showGone?'show-gone':'';var b=$('gonebtn');if(b){b.textContent=(_showGone?'隐藏':'显示')+'售罄'}}
 async function toggleAutoRes(){await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
 async function res(k){const r=await req('reserve',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.warn)toast(r.warn,false);render()}
