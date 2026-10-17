@@ -426,15 +426,18 @@ def _synthesize_green_souls(token):
         if not (syn.get("canSynthesize") or syn.get("canSynthesizeAll")):
             continue
         try:
-            r = api("POST", "/api/v1/inventory/syntheses", token=token, body={
+            _blue_before = sum(int(e.get("quantity", 0)) for e in inv.get("entries", []) if e.get("code") == "ITEM_BLUE_HERO_SOUL")
+            api("POST", "/api/v1/inventory/syntheses", token=token, body={
                 "operationId": op_id(), "itemCode": "ITEM_GREEN_HERO_SOUL",
                 "all": bool(syn.get("canSynthesizeAll")),
                 "expectedRecipeVersion": str(syn.get("recipeVersion", "1")),
                 "expectedInventoryVersion": str((inv.get("inventory") or {}).get("version", "0"))})
-            made = int(r.get("count") or 0)
+            inv2 = api("GET", "/api/v1/inventory", token=token)
+            _blue_after = sum(int(e.get("quantity", 0)) for e in inv2.get("entries", []) if e.get("code") == "ITEM_BLUE_HERO_SOUL")
+            made = max(0, _blue_after - _blue_before)
             if made:
                 _add_souls("BLUE", made)
-                add_log(f"合成: 88绿魂 -> ... -> {made}蓝魂（自动）", "success")
+                add_log(f"合成: 绿魂x10的倍数 -> +{made}蓝魂（自动，释放背包格）", "success")
         except Exception as ex:
             add_log(f"绿魂合成失败: {getattr(ex, 'code', ex)}", "warn")
         break
