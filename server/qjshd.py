@@ -978,7 +978,7 @@ def job_hourly(active=False):
 def parse_appearance(text):
     import re
     m = re.search(r"【酒馆消息】(.+?)的酒馆出现了(\d+)星(紫|橙)将【(.+?)】", text or "")
-    return {"owner": m.group(1), "star": int(m.group(2)), "hero": m.group(4)} if m else None
+    return {"owner": m.group(1), "star": int(m.group(2)), "qualityName": m.group(3), "hero": m.group(4)} if m else None
 
 
 _notices = []
