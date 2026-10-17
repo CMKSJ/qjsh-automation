@@ -115,7 +115,8 @@ async function render(){
     const provNow=provC?provC.balance:'-';
     const provCap=s.snapshot?.player?.provisionsCapacity??'-';
     window.__cap=s.snapshot?.heroCapacity||null;
-    window.__scope=s.reserveScope||{stars:[],heroes:[]};
+    window.__scope=s.reserveScope||{pairs:[]};
+    window.__knownHeroes=s.knownHeroes||{PURPLE:[],ORANGE:[]};
     window.__heroes=s.heroes||{};
     $('sndbtn').textContent=soundOn?'🔔':'🔕';$('sndbtn').title=soundOn?'提示音已开启，点击关闭':'提示音已关闭，点击开启';$('sndbtn').style.opacity=soundOn?'1':'0.5';
     const act=s.activity||{};
@@ -224,7 +225,7 @@ function renderScope(){
   var st=$('scopeStars');st.innerHTML='';
   [1,2,3,4,5].forEach(function(s){var b=document.createElement('button');b.textContent=s+'星';b.className=_SCOPE.stars.indexOf(s)>=0?'soft':'ghost';b.onclick=function(){toggleScopeStar(s)};st.appendChild(b)});
   var hs=$('scopeHeroes');hs.innerHTML='';
-  (_HN[_scopeTab]||[]).forEach(function(n){var b=document.createElement('button');b.textContent=n;b.className=_SCOPE.heroes.indexOf(n)>=0?'soft':'ghost';b.style.padding='2px 6px';b.style.fontSize='11px';b.onclick=function(){toggleScopeHero(n)};hs.appendChild(b)});
+  (_SCOPE_HN||[]).forEach(function(n){var b=document.createElement('button');b.textContent=n;b.className=_SCOPE.heroes.indexOf(n)>=0?'soft':'ghost';b.style.padding='2px 6px';b.style.fontSize='11px';b.onclick=function(){toggleScopeHero(n)};hs.appendChild(b)});
   var parts=[];
   ['PURPLE','ORANGE'].forEach(function(q){var lb=q==='PURPLE'?'紫':'橙';_SCOPE.stars.forEach(function(s){parts.push('<span class="tag" onclick="rmScope(\'s\','+s+')">'+lb+s+'星</span>')})});
   _SCOPE.heroes.forEach(function(h){parts.push('<span class="tag" onclick="rmScope(\'h\',\''+h+'\')">'+h+'</span>')});
