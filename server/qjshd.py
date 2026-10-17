@@ -1619,6 +1619,8 @@ def apply_scope_now(reason):
     if load("paused", False) is True:
         return
     auto = load("autoReserve", True) is not False
+    if not auto:
+        return  # 关闭自动预约时已清空全部预约，现存的均为手动添加，不做对齐
     scope_set = {(p["star"], p["hero"]) for p in load("reserveScope", {"pairs": []}).get("pairs", [])}
     with LOCK:
         heroes = load("purpleHeroes", {})
@@ -1631,7 +1633,7 @@ def apply_scope_now(reason):
                 h["reserved"] = True
                 h["reservedAt"] = datetime.now(timezone.utc).isoformat()
                 added.append(f"@{h['owner']} {h['hero']}({h['star']}星)")
-            elif h.get("reserved") and not (auto and in_scope):
+            elif h.get("reserved") and not in_scope:
                 h["reserved"] = False
                 removed.append(f"@{h['owner']} {h['hero']}({h['star']}星)")
         if added or removed:
@@ -1891,6 +1893,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/auto-reserve":
+            if load("paused", False) is True:
+                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，自动预约不可切换（点▶恢复后再试）"}, 403)
+                self._send(st, hd, bd)
+                return
             val = bool(body.get("enabled"))
             if val:
                 _sc0 = load("reserveScope", {"pairs": []})

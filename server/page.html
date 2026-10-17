@@ -160,11 +160,11 @@ function apply(s){
     $('pauser').style.background=window.__paused?'rgba(229,100,108,.13)':'rgba(63,185,111,.13)';
         if(window.__cap){const full=window.__cap.owned>=window.__cap.capacity;$('herocap').innerHTML='武将 <span style="color:'+(full?'var(--err)':'var(--ok)')+'">'+window.__cap.owned+'</span>/<span style="color:var(--acc)">'+window.__cap.capacity+'</span>';}else{$('herocap').textContent='';}
     window.__autoReserve=s.autoReserve!==false;
-    $('autores').textContent=window.__autoReserve?'自动预约':'暂停收购';
-    $('autores').style.color=window.__autoReserve?'':'var(--err)';
-    $('autores').style.borderColor=window.__autoReserve?'':'rgba(229,100,108,.45)';
+    $('autores').textContent=window.__paused?'暂停抢购':(window.__autoReserve?'自动预约':'暂停收购');
+    $('autores').style.color=(window.__paused||!window.__autoReserve)?'var(--err)':'';
+    $('autores').style.borderColor=(window.__paused||!window.__autoReserve)?'rgba(229,100,108,.45)':'';
     
-    $('autores').title=window.__autoReserve?'自动预约中，点击暂停':'已暂停，点击恢复';
+    $('autores').title=window.__paused?'自动化已暂停，恢复后自动预约继续生效':(window.__autoReserve?'自动预约中，点击暂停':'收购已暂停，点击恢复');
     const ter=s.snapshot&&s.snapshot.territory,res=s.snapshot&&s.snapshot.resources;
     const RN={FOREST:'森林',SWAMP:'沼泽',FARMLAND:'农田',GRASSLAND:'草原',HILL:'山地'};
     const LVC=l=>l>=50?'#ff7d84':l>=40?'#ffc46b':l>=30?'#c9a6ff':l>=20?'#8ab4ff':l>=10?'#8fd8a0':'#e8ecf4';
@@ -339,6 +339,7 @@ var _showGone=false;
 var _TRI_UP='border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:6px solid currentColor';var _TRI_DOWN='border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor';
 function toggleGone(){_showGone=!_showGone;$('heroes').className=_showGone?'show-gone':'';var b=$('gonebtn');if(b){var tri='<span style="display:inline-block;width:0;height:0;'+(_showGone?_TRI_UP:_TRI_DOWN)+';vertical-align:middle;margin-left:4px"></span>';b.innerHTML=(_showGone?'隐藏':'显示')+'售罄('+(window.__gone||0)+')'+tri}}
 async function toggleAutoRes(){
+  if(window.__paused){toast('自动化已暂停，恢复后才能切换自动预约',false);return}
   if(!window.__autoReserve&&!((window.__scope&&window.__scope.pairs)||[]).length){toast('关注武将范围为空，请先点「关注武将」设置后再开启自动预约',false);return}
   await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()
 }
