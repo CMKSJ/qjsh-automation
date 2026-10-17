@@ -1332,6 +1332,9 @@ def check_training_timers():
             continue
         def fire(w=wait, name=sess.get("heroName")):
             time.sleep(max(0, w))
+            if load("paused", False) is True:
+                add_log("训练到期但自动化已暂停(" + str(name) + ")，恢复后自动重试", "warn")
+                return
             try:
                 tok = read_token()
                 r = job_training(tok)
