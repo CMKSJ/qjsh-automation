@@ -606,7 +606,7 @@ def job_soul_scan():
         return None
     souls_today = (_soul_daily().get("souls") or {}).get("GREEN", 0)
     if souls_today >= SOUL_DAILY_GREEN_CAP:
-        warn_once("soulCap", f"今日绿魂已达上限 {SOUL_DAILY_GREEN_CAP}，遍历暂停（明日恢复）")
+        warn_once("soulCap-" + str(souls_today), f"今日绿魂已达上限 {SOUL_DAILY_GREEN_CAP}，遍历暂停（重置后恢复）")
         return None
     tok = read_token()
     if not tok:
