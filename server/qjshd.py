@@ -1112,7 +1112,7 @@ def job_purple_scan():
                             "foundAt": a["at"], "protectionEndsAt": t.get("protectionEndsAt"),
                             "lastSeenAt": datetime.now(TZ).isoformat(), "status": "ALIVE"}
                         if is_new:
-                            label = f"@a['owner'] {a['hero']}({cand['quality']}{cand['star']}星)"
+                            label = f"@{a['owner']} {a['hero']}({cand['quality']}{cand['star']}星)"
                             found.append(label)
                             if _cap_full():
                                 warn_once("capFull", "自动预约时武将位已满，照常预约（到期前需腾位）")
