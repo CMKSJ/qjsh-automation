@@ -1830,7 +1830,17 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/pause":
             val = bool(body.get("paused"))
             save("paused", val)
-            add_log("自动化已暂停（手动操作不受影响）" if val else "自动化已恢复", "warn" if val else "success")
+            if val:
+                # 暂停时取消所有预约（同暂停收购逻辑）
+                heroes = load("purpleHeroes", {})
+                cancelled = [h["hero"] for h in heroes.values() if h.get("reserved")]
+                for h in heroes.values():
+                    if h.get("reserved"):
+                        h["reserved"] = False
+                save("purpleHeroes", heroes)
+                add_log("自动化已暂停，取消全部预约" + (f"({len(cancelled)} 个)" if cancelled else ""), "warn")
+            else:
+                add_log("自动化已恢复", "success")
             if val:
                 threading.Thread(target=refresh_snapshot, kwargs={"force": True}, daemon=True).start()
             st, hd, bd = jresp({"ok": True, "paused": val})
@@ -1838,7 +1848,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route == "/api/reserve":
             if load("paused", False) is True:
-                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，预约不可用（点⏸恢复后再试）"}, 403)
+                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，预约不可用（点▶恢复后再试）"}, 403)
                 self._send(st, hd, bd)
                 return
             key = body.get("key")
@@ -1863,7 +1873,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route == "/api/grab":
             if load("paused", False) is True:
-                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，抢购不可用（点⏸恢复后再试）"}, 403)
+                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，抢购不可用（点▶恢复后再试）"}, 403)
                 self._send(st, hd, bd)
                 return
             r = grab_hero(body.get("key"), manual=True)
