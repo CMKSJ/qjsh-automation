@@ -1008,22 +1008,36 @@ def _live_notices():
     return [n for n in _notices if time.time() - n["at"] < 60]
 
 
-def _note_known_hero(name, quality):
-    """酒馆监控见到紫/橙将时记入名单（供范围选择器）"""
+def _note_known_hero(name, quality, star=0):
+    """酒馆监控见到紫/橙将时记入名单（记录见过的最高星级）"""
     if quality not in ("PURPLE", "ORANGE") or not name:
         return
     with LOCK:
-        kn = load("knownHeroes", {"PURPLE": [], "ORANGE": []})
-        if name not in (kn.get(quality) or []):
-            kn.setdefault(quality, []).append(name)
-            save("knownHeroes", kn)
+        kn = load("knownHeroes", {})
+        if isinstance(kn.get(quality), list):  # 旧数组格式 → 转对象
+            kn[quality] = {n: 0 for n in kn[quality]}
+        grp = kn.setdefault(quality, {})
+        if name not in grp:
+            grp[name] = int(star or 0)
+            add_log(f"关注名单+{'橙' if quality == 'ORANGE' else '紫'}将 {name}({star or '?'}星)", "info")
+        elif int(star or 0) > int(grp[name] or 0):
+            grp[name] = int(star)
+        save("knownHeroes", kn)
 
 
 def _known_purple_orange():
-    """名单唯一来源：knownHeroes.json（_note_known_hero 见到即写入）"""
-    kn = load("knownHeroes", {"PURPLE": [], "ORANGE": []})
-    return {"PURPLE": sorted(n for n in (kn.get("PURPLE") or []) if isinstance(n, str)),
-            "ORANGE": sorted(n for n in (kn.get("ORANGE") or []) if isinstance(n, str))}
+    """名单唯一来源：knownHeroes.json（_note_known_hero 见到即写入，记录最高星级）"""
+    kn = load("knownHeroes", {})
+    out = {}
+    for q in ("PURPLE", "ORANGE"):
+        grp = kn.get(q)
+        if isinstance(grp, list):  # 旧数组格式兼容
+            items = [{"name": n, "star": 0} for n in grp if isinstance(n, str)]
+        else:
+            items = [{"name": n, "star": int(s or 0)} for n, s in (grp or {}).items() if isinstance(n, str)]
+        items.sort(key=lambda x: (-x["star"], x["name"]))
+        out[q] = items
+    return out
 
 
 def _cap_full():
@@ -1041,7 +1055,7 @@ def job_purple_scan():
         for e in ann.get("entries") or []:
             for pp in parse_appearance_all(e.get("content", "")):
                 pp["at"] = e.get("startsAt")
-                _note_known_hero(pp["hero"], "ORANGE" if pp.get("qualityName") == "橙" else "PURPLE")
+                _note_known_hero(pp["hero"], "ORANGE" if pp.get("qualityName") == "橙" else "PURPLE", pp.get("star") or 0)
                 appearances.append(pp)
         with LOCK:
             pcache = load("playerCache", {})

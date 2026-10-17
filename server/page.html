@@ -76,7 +76,7 @@ button.warn{background:var(--warn)}button:disabled{opacity:.4;cursor:default}
 <div class="card"><h2>今日任务<button class="soft" style="margin-left:auto" onclick="job('refresh')" title="刷新信息">🔄</button></h2><div class="grid" id="daily"></div>
   <div class="row" style="margin-top:10px">
   </div><div id="trainingbox" style="margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:8px 12px"></div></div>
-<div class="card"><h2>酒馆监控 <button id="autores" class="soft" style="padding:3px 10px;margin-left:8px" onclick="toggleAutoRes()">自动预约</button><button class="soft" style="padding:3px 8px;font-size:12px" onclick="openScope()">范围</button><span class="tag" id="herocap" style="margin-left:auto"></span><button class="soft" onclick="job('scan')">立即扫描</button></h2>
+<div class="card"><h2>酒馆监控 <button id="autores" class="soft" style="padding:3px 10px;margin-left:8px" onclick="toggleAutoRes()">自动预约</button><button class="soft" style="padding:3px 10px" onclick="openScope()">关注武将</button><span class="tag" id="herocap" style="margin-left:auto"></span><button class="soft" onclick="job('scan')">立即扫描</button></h2>
   <div id="heroes"><p class="muted">暂无存活紫将</p></div></div>
 <div class="card"><h2>日志</h2><div class="log" id="log"></div></div>
 <script>
@@ -215,31 +215,67 @@ function capFull(){const c=window.__cap;return !!(c&&c.capacity>0&&c.owned>=c.ca
 async function resetSouls(){await req('reset-souls',{method:'POST',body:JSON.stringify({})});render()}
 async function toggleSoul(){await req('soul-factory',{method:'POST',body:JSON.stringify({enabled:!window.__soul})});setTimeout(render,1000)}
 var _scopeTab='PURPLE';
-var _SCOPE={stars:[],heroes:[]};
-var _HN={PURPLE:['卢俊义','林冲','武松','鲁智深','扈三娘','燕青','时迁','晁盖','宋江','李逵','石秀','董平','孙二娘','张青','白胜','关胜','史文恭','柴进','宋万','穆春','索超','公孙胜','刘唐','雷横','朱仝','史进','杨志','徐宁','花荣','秦明','黄信','孙立','宣赞','郝思文','韩滔','彭玘','萧让','裴宣','欧鹏','邓飞','杨林','吕方','郭盛','王英','鲍旭','樊瑞','孔明','孔亮','项充','李衮','金大坚','马麟','童威','童猛','孟康','侯健','陈达','杨春','郑天寿','陶宗旺','宋清','杜迁','薛霸','杜兴','邹渊','邹润','朱贵','朱富','施恩','蔡福','蔡庆','李立','李云','焦挺','石勇','孙新','顾大嫂','张横','张顺','李俊','阮小二','阮小五','阮小七','杨雄','解珍','解宝','燕顺','王定六','郁保四','段景住','曹正','李忠','周通','宋万','穆弘','穆春','薛永','侯健','段景住'],
-ORANGE:['宋江','卢俊义','吴用','公孙胜','关胜','林冲','秦明','呼延灼','花荣','柴进','李应','朱仝','鲁智深','武松','董平','张清','杨志','徐宁','索超','戴宗','刘唐','李逵','史进','穆弘','雷横','李俊','阮小二','张横','阮小五','张顺','阮小七','杨雄','石秀','解珍','解宝','燕青','朱武','黄信','孙立','宣赞','郝思文','韩滔','彭玘','单廷珪','魏定国','萧让','裴宣','欧鹏','邓飞','燕泽','杨林','吕方','郭盛','王英','扈三娘','鲍旭','樊瑞','孔明','孔亮','项充','李衮','金大坚','马麟','童威','童猛','孟康','侯健','陈达','杨春','郑天寿','陶宗旺','宋清','朱贵','朱富','施恩','蔡福','蔡庆','李立','李云','焦挺','石勇','孙新','顾大嫂','张青','孙二娘','王定六','郁保四','白胜','时迁','段景住','李忠','周通','曹正','郁保四']};
-function openScope(){_SCOPE=window.__scope||{stars:[],heroes:[]};$('scopePanel').style.display='flex';renderScope()}
+var _selStars=[], _selHeroes=[];
+function openScope(){
+  _selStars=[];_selHeroes=[];
+  $('scopePanel').style.display='flex';
+  scopeTab('PURPLE');
+}
 function closeScope(){$('scopePanel').style.display='none'}
-function scopeTab(q){_scopeTab=q;$('tabPurple').className=q==='PURPLE'?'soft':'ghost';$('tabOrange').className=q==='ORANGE'?'soft':'ghost';renderScope()}
-function toggleScopeStar(s){var i=_SCOPE.stars.indexOf(s);if(i>=0)_SCOPE.stars.splice(i,1);else _SCOPE.stars.push(s);saveScope()}
-function toggleScopeHero(h){var i=_SCOPE.heroes.indexOf(h);if(i>=0)_SCOPE.heroes.splice(i,1);else _SCOPE.heroes.push(h);saveScope()}
-function rmScope(t,v){if(t==='s'){var i=_SCOPE.stars.indexOf(v);if(i>=0)_SCOPE.stars.splice(i,1)}else{var i=_SCOPE.heroes.indexOf(v);if(i>=0)_SCOPE.heroes.splice(i,1)}saveScope()}
-function saveScope(){window.__scope=_SCOPE;req('save-scope',{method:'POST',body:JSON.stringify(_SCOPE)});renderScope()}
+function scopeTab(q){
+  _scopeTab=q;
+  _selHeroes=[];
+  $('tabPurple').className=q==='PURPLE'?'soft':'ghost';
+  $('tabOrange').className=q==='ORANGE'?'soft':'ghost';
+  renderScope();
+}
+function toggleStar(s){var i=_selStars.indexOf(s);if(i>=0)_selStars.splice(i,1);else{_selStars.push(s);_selStars.sort()}renderScope()}
+function toggleHero(h){var i=_selHeroes.indexOf(h);if(i>=0)_selHeroes.splice(i,1);else _selHeroes.push(h);renderScope()}
+function selAllStars(){_selStars=[1,2,3,4,5];renderScope()}
+function selAllHeroes(){_selHeroes=(window.__knownHeroes[_scopeTab]||[]).map(function(n){return n.name});renderScope()}
+function addPairs(){
+  var pairs=(window.__scope&&window.__scope.pairs)||[];
+  var keySet={};pairs.forEach(function(p){keySet[p.star+'|'+p.hero]=1});
+  _selStars.forEach(function(s){
+    _selHeroes.forEach(function(h){
+      if(!keySet[s+'|'+h]){pairs.push({star:s,hero:h});keySet[s+'|'+h]=1}
+    });
+  });
+  window.__scope={pairs:pairs};
+  req('save-scope',{method:'POST',body:JSON.stringify({pairs:pairs})});
+  _selStars=[];_selHeroes=[];
+  renderScope();
+}
+function rmPair(s,h){
+  var pairs=(window.__scope&&window.__scope.pairs)||[];
+  pairs=pairs.filter(function(p){return !(p.star===s&&p.hero===h)});
+  window.__scope={pairs:pairs};
+  req('save-scope',{method:'POST',body:JSON.stringify({pairs:pairs})});
+  renderScope();
+}
 function renderScope(){
   var st=$('scopeStars');st.innerHTML='';
-  [1,2,3,4,5].forEach(function(s){var b=document.createElement('button');b.textContent=s+'星';b.className=_SCOPE.stars.indexOf(s)>=0?'soft':'ghost';b.onclick=function(){toggleScopeStar(s)};st.appendChild(b)});
+  [1,2,3,4,5].forEach(function(s){var b=document.createElement('button');b.textContent=s+'星';b.className=_selStars.indexOf(s)>=0?'soft':'ghost';b.onclick=function(){toggleStar(s)};st.appendChild(b)});
+  var selAllS=document.createElement('button');selAllS.textContent='全选';selAllS.className='ghost';selAllS.onclick=selAllStars;st.appendChild(selAllS);
   var hs=$('scopeHeroes');hs.innerHTML='';
-  (_SCOPE_HN||[]).forEach(function(n){var b=document.createElement('button');b.textContent=n;b.className=_SCOPE.heroes.indexOf(n)>=0?'soft':'ghost';b.style.padding='2px 6px';b.style.fontSize='11px';b.onclick=function(){toggleScopeHero(n)};hs.appendChild(b)});
+  var names=window.__knownHeroes[_scopeTab]||[];
+  names.forEach(function(n){var b=document.createElement('button');b.textContent=n.star?n.name+'('+n.star+'星)':n.name;b.className=_selHeroes.indexOf(n.name)>=0?'soft':'ghost';b.style.padding='2px 6px';b.style.fontSize='11px';b.onclick=function(){toggleHero(n.name)};hs.appendChild(b)});
+  var selAllH=document.createElement('button');selAllH.textContent='全选';selAllH.className='ghost';selAllH.onclick=selAllHeroes;hs.appendChild(selAllH);
+  var pairs=(window.__scope&&window.__scope.pairs)||[];
   var parts=[];
-  ['PURPLE','ORANGE'].forEach(function(q){var lb=q==='PURPLE'?'紫':'橙';_SCOPE.stars.forEach(function(s){parts.push('<span class="tag" onclick="rmScope(\'s\','+s+')">'+lb+s+'星</span>')})});
-  _SCOPE.heroes.forEach(function(h){parts.push('<span class="tag" onclick="rmScope(\'h\',\''+h+'\')">'+h+'</span>')});
+  pairs.forEach(function(p){parts.push('<span class="tag" onclick="rmPair(\''+p.star+'\',\''+p.hero+'\')">'+p.star+'星'+p.hero+'</span>')});
   $('scopeSelected').innerHTML=parts.join('')||'<span class="muted">空</span>';
-  $('scopeCount').textContent='已选 '+(_SCOPE.stars.length+_SCOPE.heroes.length)+' 项';
+  $('scopeCount').textContent='已选 '+pairs.length+' 项';
+  var hint=$('scopeHint');
+  if(hint)hint.textContent=_selStars.length&&_selHeroes.length?('将添加 '+(_selStars.length*_selHeroes.length)+' 项（'+_selStars.length+'个星级 × '+_selHeroes.length+'名武将）'):'请同时选择星级和武将';
 }
 var _showGone=false;
 var _TRI_UP='border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:6px solid currentColor';var _TRI_DOWN='border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor';
 function toggleGone(){_showGone=!_showGone;$('heroes').className=_showGone?'show-gone':'';var b=$('gonebtn');if(b){var tri='<span style="display:inline-block;width:0;height:0;'+(_showGone?_TRI_UP:_TRI_DOWN)+';vertical-align:middle;margin-left:4px"></span>';b.innerHTML=(_showGone?'隐藏':'显示')+'售罄('+(window.__gone||0)+')'+tri}}
-async function toggleAutoRes(){await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()}
+async function toggleAutoRes(){
+  if(!window.__autoReserve&&!((window.__scope&&window.__scope.pairs)||[]).length){alert('关注武将范围为空，请先点「关注武将」设置后再开启自动预约');return}
+  await req('auto-reserve',{method:'POST',body:JSON.stringify({enabled:!window.__autoReserve})});render()
+}
 async function togglePause(){const r=await req('pause',{method:'POST',body:JSON.stringify({paused:!window.__paused})});render()}
 async function res(k){const r=await req('reserve',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.error==='PAUSED'){toast(r.msg,false);return}if(r&&r.warn)toast(r.warn,false);render()}
 async function grab(k){const r=await req('grab',{method:'POST',body:JSON.stringify({key:k})});if(r&&r.error==='PAUSED'){toast(r.msg,false);return}if(!r.ok)toast(r.msg||'抢购失败',false);else toast('已抢到 '+r.msg.replace('已抢到 ',''),true);render()}
@@ -248,11 +284,13 @@ try{var _c=JSON.parse(localStorage.getItem('lastStatus')||'null');if(_c)apply(_c
 render();setInterval(render,10000);
 </script>
 <div id="scopePanel"><div class="inner">
-<h3>自动预约范围 <span class="muted" id="scopeCount"></span><button class="ghost" style="margin-left:auto;padding:2px 10px" onclick="closeScope()">关闭</button></h3>
+<h3>关注武将 <span class="muted" id="scopeCount"></span><button class="ghost" style="margin-left:auto;padding:2px 10px" onclick="closeScope()">关闭</button></h3>
 <div class="tabs"><button id="tabPurple" class="soft" onclick="scopeTab('PURPLE')">紫将</button><button id="tabOrange" class="ghost" onclick="scopeTab('ORANGE')">橙将</button></div>
 <div class="stars" id="scopeStars"></div>
-<div class="muted" style="margin-bottom:4px">按名字：</div>
+<div class="muted" style="margin-bottom:4px">武将：</div>
 <div class="heroes" id="scopeHeroes"></div>
+<div class="muted" id="scopeHint" style="margin-bottom:8px">请同时选择星级和武将</div>
+<button class="soft" style="width:100%;padding:8px" onclick="addPairs()">加入已选范围</button>
 <div class="selected"><span class="muted">已选（点击删除）：</span><div id="scopeSelected" style="margin-top:6px"></div></div>
 </div></div>
 </body></html>
