@@ -1323,13 +1323,13 @@ def grab_hero(key, manual=False):
         return {"ok": False, "msg": str(e)}
 
 
-GRAB_LEAD_MS = 1500       # 提前 2 秒开抢
+GRAB_LEAD_MS = 1500       # 提前 1.5 秒开抢（预约到点触发时引用）
 GRAB_INTERVAL_MS = 120    # 连发间隔
 GRAB_MAX_ATTEMPTS = 18    # -1.5s ~ +0.5s 覆盖（18 × 120ms = 2.16s）
 
 
 def grab_burst(key):
-    """覆盖式抢购：提前 1s 开始，每 120ms 一次直到成功/终态；每次结果记日志"""
+    """覆盖式抢购：由调用方按 GRAB_LEAD_MS 提前启动，每 120ms 一次直到成功/终态；每次结果记日志"""
     heroes = load("purpleHeroes", {})
     h = heroes.get(key) or {}
     if h.get("status") != "ALIVE":
@@ -1619,7 +1619,7 @@ def check_reservations():
         elif dt <= 90:
             if key not in _grab_threads or not _grab_threads[key].is_alive():
                 def waiter(k=key, wait=dt):
-                    time.sleep(max(0, wait - 0.15))
+                    time.sleep(max(0, wait - GRAB_LEAD_MS / 1000))
                     grab_burst(k)
                 th = threading.Thread(target=waiter, daemon=True)
                 _grab_threads[key] = th
