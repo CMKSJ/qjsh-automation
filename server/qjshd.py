@@ -461,9 +461,20 @@ def _player_by_sid(token, sid, pcache):
     return None
 
 
+SOUL_SCAN_HOUR_START = 10   # 北京时间 10:00
+SOUL_SCAN_HOUR_END = 2      # 次日 02:00（跨零点窗口）
+
+
+def _in_soul_window():
+    h = datetime.now(TZ).hour
+    return SOUL_SCAN_HOUR_START <= h < 24 or 0 <= h < SOUL_SCAN_HOUR_END
+
+
 def job_soul_scan():
-    """一段遍历：从游标起扫 SOUL_SCAN_BATCH 个 shortId，绿将招+提魂"""
+    """一段遍历：从游标起扫 SOUL_SCAN_BATCH 个 shortId，仅1星绿将招+提魂；10:00~02:00 窗口"""
     if load("soulFactory", False) is not True:
+        return None
+    if not _in_soul_window():
         return None
     tok = read_token()
     if not tok:
@@ -497,7 +508,7 @@ def job_soul_scan():
             t = api("GET", f"/api/v1/friend-cities/{info['playerId']}/tavern", token=tok)
         except Exception:
             continue
-        cand = next((c for c in (t.get("candidates") or []) if c.get("quality") == "GREEN" and c.get("recruitmentAvailable")), None)
+        cand = next((c for c in (t.get("candidates") or []) if c.get("quality") == "GREEN" and c.get("star") == 1 and c.get("recruitmentAvailable")), None)
         if not cand:
             continue
         found += 1
