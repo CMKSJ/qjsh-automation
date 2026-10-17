@@ -180,15 +180,18 @@ dh+='<div class="kv"><span>整点任务</span><a class="miniact" style="margin-l
         }
       }
     }
-    const GRP={GRABBED:0,GONE:3,ALIVE:2};
-    const hs=Object.values(s.heroes||{}).map(h=>{h.__exp=h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date();return h}).sort(function(a,b){
-      const ga=a.__exp||a.status!=='ALIVE'?GRP[a.status]||3:3,gb=b.__exp||b.status!=='ALIVE'?GRP[b.status]||3:3;
-      const rank=function(h){return h.status==='ALIVE'?(h.__exp?2:1):(h.status==='GRABBED'?0:3)};
+    const hs=Object.values(s.heroes||{}).map(h=>{h.__exp=h.status==='ALIVE'&&new Date(h.protectionEndsAt)<=new Date();return h})
+.sort(function(a,b){
+      function rank(h){
+        if(h.status==='GRABBED')return 0;
+        if(h.status==='ALIVE')return h.__exp?1:2;
+        return 3;
+      }
       const ra=rank(a),rb=rank(b);
       if(ra!==rb)return ra-rb;
-      if(ra===3)return new Date(a.protectionEndsAt)-new Date(b.protectionEndsAt);
+      if(ra===1||ra===2)return new Date(a.protectionEndsAt)-new Date(b.protectionEndsAt);
       const qa=a.quality==='ORANGE'?1:0,qb=b.quality==='ORANGE'?1:0;
-      const asc=(ra===2||ra===3);  // 在售/保留组升序；购得/售罄组降序
+      const asc=(ra===1||ra===2);
       return qb-qa||(asc?a.star-b.star:b.star-a.star);
     });
     const liveKeys=hs.filter(h=>h.status==='ALIVE').map(h=>h.key);
