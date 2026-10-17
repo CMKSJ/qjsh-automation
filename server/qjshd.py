@@ -1616,8 +1616,6 @@ def check_reservations():
 def apply_scope_now(reason):
     """按当前关注范围立刻对齐：范围内补预约（自动预约开启时），范围外取消预约；
     补预约后交给 check_reservations——保护期已过的立即抢购"""
-    if load("paused", False) is True:
-        return
     auto = load("autoReserve", True) is not False
     if not auto:
         return  # 关闭自动预约时已清空全部预约，现存的均为手动添加，不做对齐
@@ -1668,7 +1666,10 @@ def tick():
     except Exception:
         pass
 
-    # 暂停 = 拦截一切自动操作（训练/收获/重派/提魂/遍历/签到/整点/抢购），仅保留采样与紫将扫描记录
+    # 预约链路不受暂停影响：暂停期间手动/自动预约照常，到点照常抢
+    check_reservations()
+
+    # 暂停 = 拦截其他自动操作（训练/收获/重派/提魂/遍历/签到/整点），仅保留采样与紫将扫描记录
     if load("paused", False) is True:
         if minute % 5 == 2:
             for f in job_purple_scan():
@@ -1721,8 +1722,6 @@ def tick():
         if minute % 5 == 2:
             for f in job_purple_scan():
                 add_log(f"发现: {f}", "success")
-
-        check_reservations()
     except Exception as e:
         add_log(f"调度异常: {e}", "error")
 
@@ -1893,11 +1892,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/auto-reserve":
-            if load("paused", False) is True:
-                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，自动预约不可切换（点▶恢复后再试）"}, 403)
-                self._send(st, hd, bd)
-                return
-            val = bool(body.get("enabled"))
             if val:
                 _sc0 = load("reserveScope", {"pairs": []})
                 if not _sc0.get("pairs"):
@@ -1942,14 +1936,7 @@ class Handler(BaseHTTPRequestHandler):
             val = bool(body.get("paused"))
             save("paused", val)
             if val:
-                # 暂停时取消所有预约（同暂停收购逻辑）
-                heroes = load("purpleHeroes", {})
-                cancelled = [h["hero"] for h in heroes.values() if h.get("reserved")]
-                for h in heroes.values():
-                    if h.get("reserved"):
-                        h["reserved"] = False
-                save("purpleHeroes", heroes)
-                add_log("自动化已暂停，取消全部预约" + (f"({len(cancelled)} 个)" if cancelled else ""), "warn")
+                add_log("自动化已暂停（预约与到点抢购不受影响）", "warn")
             else:
                 add_log("自动化已恢复", "success")
                 threading.Thread(target=apply_scope_now, args=("恢复自动化",), daemon=True).start()
@@ -1959,11 +1946,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/reserve":
-            if load("paused", False) is True:
-                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，预约不可用（点▶恢复后再试）"}, 403)
-                self._send(st, hd, bd)
-                return
-            key = body.get("key")
             with LOCK:
                 heroes = load("purpleHeroes", {})
             if key not in heroes:
@@ -1984,11 +1966,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/grab":
-            if load("paused", False) is True:
-                st, hd, bd = jresp({"ok": False, "error": "PAUSED", "msg": "自动化已暂停，抢购不可用（点▶恢复后再试）"}, 403)
-                self._send(st, hd, bd)
-                return
-            r = grab_hero(body.get("key"), manual=True)
             if r.get("ok"):
                 _h = (load("purpleHeroes", {}).get(body.get("key")) or {})
                 add_log(f"🎉 抢购成功(手动): {_h.get('hero','?')}({_h.get('quality','?')}{_h.get('star','?')}星 @{_h.get('owner','?')})", "success")
