@@ -170,6 +170,36 @@ def api(method, path, token=None, body=None):
     return payload.get("data")
 
 
+
+_ERR_CN = {
+    "MARKET_NOT_READY": "市场冷却中",
+    "HOME_GARRISON_RENT_NOT_READY": "驻守租金未到时间",
+    "HOME_GARRISON_RENT_VERSION_CONFLICT": "驻守状态已变化，稍后重试",
+    "HERO_TRAINING_STATE_CONFLICT": "训练状态冲突",
+    "TAVERN_CANDIDATE_PROTECTED": "保护期未开",
+    "HOME_MINING_DAILY_LIMIT": "矿山次数已用完",
+    "HOME_MINING_COOLDOWN": "矿山冷却中",
+    "INVENTORY_FULL": "背包已满",
+    "HERO_CAPACITY_FULL": "武将位已满",
+    "HERO_BUSY": "武将正在执行其他任务",
+    "ACCESS_DENIED": "无权执行",
+    "SESSION_EXPIRED": "登录已过期",
+    "SESSION_REPLACED": "会话被顶替",
+    "NO_TOKEN": "缺少accessToken",
+    "NETWORK": "网络异常",
+    "HTTP_ERROR": "服务器异常",
+}
+
+
+def _cn(code):
+    """错误码翻译为中文；未知码原样返回"""
+    s = str(code or "")
+    for k, v in _ERR_CN.items():
+        if k in s:
+            return v
+    return s
+
+
 def op_id():
     return str(uuid.uuid4())
 
@@ -360,7 +390,7 @@ def job_signin():
                 results.append(f"7日签到: 第{day['day']}天 ✓")
         with_session(do)
     except Exception as e:
-        results.append(f"7日签到失败: {getattr(e, 'code', e)}")
+        results.append(f"7日签到失败: {_cn(_cn(getattr(e, 'code', e)))}")
     try:
         def do2(token):
             s = api("GET", "/api/v1/monthly-login-rewards", token=token)
@@ -372,7 +402,7 @@ def job_signin():
             results.append("月签到: ✓")
         with_session(do2)
     except Exception as e:
-        results.append(f"月签到失败: {getattr(e, 'code', e)}")
+        results.append(f"月签到失败: {_cn(_cn(getattr(e, 'code', e)))}")
     return results
 
 
@@ -533,7 +563,7 @@ def job_soul_factory(token):
                     "expectedCandidateVersion": c.get("version", 0)})
                 out.append(f"招募: {c['name']}({q}{c['star']}星)")
             except Exception as e:
-                out.append(f"招募失败({c['name']}): {getattr(e, 'code', e)}")
+                out.append(f"招募失败({c['name']}): {_cn(_cn(getattr(e, 'code', e)))}")
     return out
 
 
@@ -588,7 +618,7 @@ def job_soul_scan():
         cap = (load("snapshot", {}) or {}).get("heroCapacity") or {}
         free = (cap.get("capacity", 0) - cap.get("owned", 0)) if cap else 0
     except Exception as e:
-        add_log(f"提魂遍历前置失败: {getattr(e, 'code', e)}", "error")
+        add_log(f"提魂遍历前置失败: {_cn(_cn(getattr(e, 'code', e)))}", "error")
         return None
     if copper < 5000:
         return "铜钱不足5000，跳过"
@@ -917,7 +947,7 @@ def job_hourly(active=False):
                         body={"operationId": op_id(), "expectedVersion": market["version"]})
                 out.append(f"征收 +{r.get('collectedCopper')} 铜")
             else:
-                out.append(f"征收: {market.get('collectionStatus')}")
+                out.append("征收: " + ("冷却中" if market.get("collectionStatus") == "COOLDOWN" else str(market.get("collectionStatus"))))
 
             occ = home.get("occupation") or {}
             if occ.get("status") == "GARRISONED" or (occ.get("rent") or {}).get("availableCopper", 0) > 0:
@@ -931,7 +961,7 @@ def job_hourly(active=False):
             try:
                 out.extend(job_soul_factory(token))
             except Exception as e:
-                out.append(f"提魂异常: {getattr(e, 'code', e)}")
+                out.append(f"提魂异常: {_cn(_cn(getattr(e, 'code', e)))}")
             # 资源点收获与训练已由独立到点计时器处理（check_resource_timers/check_training_timers），
             # 进程重启后下一分钟 tick 也会补收，不再放整点任务（避免与触发线程并发冲突）
 
@@ -939,7 +969,7 @@ def job_hourly(active=False):
         with_session(do)
         mark_self_action()
     except Exception as e:
-        out.append(f"失败: {getattr(e, 'code', e)}")
+        out.append(f"失败: {_cn(_cn(getattr(e, 'code', e)))}")
     return out
 
 
@@ -1757,7 +1787,8 @@ class Handler(BaseHTTPRequestHandler):
                                 h["reservedAt"] = datetime.now(timezone.utc).isoformat()
                                 changed.append(f"{h['hero']}({h['quality']}{h['star']}星)")
                     save("purpleHeroes", heroes)
-                    add_log(("自动预约已开启" + (f"，批量预约 {len(changed)} 个: " + "、".join(changed) if changed else "自动预约已开启")) + _full_note, "success" if not _full_note else "warn")
+                    _detail = (f"，批量预约 {len(changed)} 个: " + "、".join(changed)) if changed else ""
+                    add_log("自动预约已开启" + _detail + _full_note, "success" if not _full_note else "warn")
                     threading.Thread(target=check_reservations, daemon=True).start()
                 else:
                     for k, h in heroes.items():
