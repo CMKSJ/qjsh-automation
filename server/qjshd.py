@@ -825,10 +825,27 @@ def job_territory_income(token):
                     tax += 1
             except Exception:
                 pass
+        # 挖矿（占领城市的 mine-visits，每日限次）
+        mined = 0
+        for c in (t.get("cities") or []):
+            if not c.get("controlledBySubject"):
+                continue
+            try:
+                r = api("POST", "/api/v1/friend-interactions/mine-visits", token=token,
+                        body={"operationId": op_id(), "targetPlayerId": c["ownerPlayerId"]})
+                if r.get("success"):
+                    qty = r.get("rewardQuantity") or 0
+                    code = r.get("rewardCode") or ""
+                    mined += 1
+                    if qty:
+                        out.append(f"挖矿({c['ownerDisplayName']}): {code}×{qty}")
+            except Exception:
+                pass  # 次数用完等异常静默
         parts = []
         if got: parts.append("驻守" + str(got) + "座")
         if tax: parts.append("税款" + str(tax) + "座")
-        out.append("领地: " + " ".join(parts) if parts else "领地: 未到收取时间")
+        if mined: parts.append("挖矿" + str(mined) + "次")
+        out.insert(0, "领地: " + " ".join(parts) if parts else "领地: 全部未到时间")
     except Exception as e:
         out.append("领地铜钱失败: " + str(getattr(e, "code", e)))
     return out
