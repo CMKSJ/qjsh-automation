@@ -606,7 +606,10 @@ def job_soul_scan():
         return None
     souls_today = (_soul_daily().get("souls") or {}).get("GREEN", 0)
     if souls_today >= SOUL_DAILY_GREEN_CAP:
-        warn_once("soulCap-" + str(souls_today), f"今日绿魂已达上限 {SOUL_DAILY_GREEN_CAP}，遍历暂停（重置后恢复）")
+        # 只在「刚达到上限」（上次还不到）时提示一次，后续段直接静默跳过
+        if load("soulCapNotified", False) is not True:
+            add_log(f"今日绿魂已达上限 {SOUL_DAILY_GREEN_CAP}，遍历暂停（重置后恢复）", "warn")
+            save("soulCapNotified", True)
         return None
     tok = read_token()
     if not tok:
@@ -683,7 +686,9 @@ def job_soul_scan():
             _add_souls("GREEN", n)
             results.append(f"{cand['name']}({cand['star']}星)+{n}魂")
             if (_soul_daily().get("souls") or {}).get("GREEN", 0) >= SOUL_DAILY_GREEN_CAP:
-                results.append(f"今日绿魂达 {SOUL_DAILY_GREEN_CAP} 上限，停止本段")
+                results.append(f"达上限{SOUL_DAILY_GREEN_CAP}，停止")
+                save("soulCapNotified", True)
+                add_log(f"今日绿魂已达上限 {SOUL_DAILY_GREEN_CAP}（段内触发），遍历暂停", "warn")
                 break
         except Exception as e:
             code = getattr(e, "code", "")
@@ -1766,6 +1771,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(st, hd, bd)
             return
         if route == "/api/reset-souls":
+            save("soulCapNotified", False)
             d = _soul_daily()
             d["souls"] = {}
             save("daily", d)
